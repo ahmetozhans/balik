@@ -13,6 +13,16 @@
 <article class="map-card">
   <div class="spread"><h2>Mera haritası</h2><a id="map-link" target="_blank" rel="noopener">OpenStreetMap’te aç</a></div>
   <div class="map-basemaps" role="group" aria-label="Harita görünümü"><button id="map-streets" type="button" aria-pressed="true">Sokak</button><button id="map-satellite" type="button" aria-pressed="false">Uydu</button></div>
+  <div class="imagery-review">
+    <button id="review-pilot" type="button">Mudanya pilot alanını göster</button>
+    <label id="imagery-release-wrap" hidden>Uydu görüntüsü<select id="imagery-release">
+      <option value="">Güncel görünüm</option>
+      <option value="3692">Arşiv yayını · 18.11.2026</option>
+      <option value="56102">Arşiv yayını · 07.12.2023</option>
+      <option value="26120">Arşiv yayını · 21.12.2021</option>
+      <option value="4756">Arşiv yayını · 12.12.2019</option>
+    </select></label>
+  </div>
   <div id="map" class="map" aria-label="Etkileşimli mera ve deniz tabanı haritası"></div>
   <p id="map-status" class="muted" role="status"></p>
   <div id="cast-panel" class="cast-panel">

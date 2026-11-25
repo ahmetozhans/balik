@@ -159,6 +159,27 @@ let meraMap;
 let streetTiles;
 let satelliteTiles;
 let baseMode = 'streets';
+let pilotOutline;
+const imageryPilot = { south: 40.37584377696, west: 28.88580322266, north: 40.37793612222, east: 28.88854980469 };
+const imageryPilotResult = 'Mudanya pilotunda arşiv görüntüleri incelendi. Dip türü görüntüden ayırt edilemedi.';
+const worldImagery = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
+const waybackImagery = 'https://wayback.maptiles.arcgis.com/arcgis/rest/services/World_Imagery/WMTS/1.0.0/default028mm/MapServer/tile/';
+
+function isImageryPilot(point) {
+  return point.lat >= imageryPilot.south && point.lat <= imageryPilot.north &&
+    point.lng >= imageryPilot.west && point.lng <= imageryPilot.east;
+}
+
+function showImageryPilot() {
+  if (!meraMap) return;
+  setMapBase('satellite');
+  const bounds = [[imageryPilot.south, imageryPilot.west], [imageryPilot.north, imageryPilot.east]];
+  if (!pilotOutline) {
+    pilotOutline = L.rectangle(bounds, { color: '#2cbbce', weight: 2, dashArray: '5 5', fill: false, interactive: false }).addTo(meraMap);
+  }
+  meraMap.fitBounds(bounds, { padding: [12, 12], maxZoom: 18 });
+  $('map-status').textContent = imageryPilotResult + ' Çizgili sınır incelenen alanı gösterir.';
+}
 let meraPins;
 let conditionPins;
 let dipLayers;
@@ -187,6 +208,7 @@ function setMapBase(next) {
   meraMap.removeLayer(satellite ? streetTiles : satelliteTiles);
   (satellite ? satelliteTiles : streetTiles).addTo(meraMap);
   baseMode = next;
+  $('imagery-release-wrap').hidden = !satellite;
   $('map-streets').setAttribute('aria-pressed', String(!satellite));
   $('map-satellite').setAttribute('aria-pressed', String(satellite));
 }
@@ -252,6 +274,7 @@ async function pickCastPoint(point) {
       const failed = records.some(record => record.status === 'rejected');
       status.append(el('span', failed ? 'Bazı veri katmanlarına ulaşılamadı.' : 'Seçilen su koordinatında açık dip kaydı bulunamadı.'));
     }
+    if (isImageryPilot(point)) status.append(el('span', imageryPilotResult));
   } finally { clearTimeout(timer); }
 }
 
@@ -431,7 +454,7 @@ function renderMap() {
     streetTiles = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
     }).addTo(meraMap);
-    satelliteTiles = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+    satelliteTiles = L.tileLayer(worldImagery, {
       maxZoom: 19, attribution: 'Görüntü: Esri, Maxar, Earthstar Geographics ve GIS User Community'
     });
     satelliteTiles.on('tileerror', () => {
@@ -439,6 +462,11 @@ function renderMap() {
     });
     $('map-streets').onclick = () => setMapBase('streets');
     $('map-satellite').onclick = () => setMapBase('satellite');
+    $('review-pilot').onclick = showImageryPilot;
+    $('imagery-release').onchange = event => {
+      const release = event.currentTarget.value;
+      satelliteTiles.setUrl(release ? waybackImagery + release + '/{z}/{y}/{x}' : worldImagery);
+    };
     dipLayers = L.layerGroup().addTo(meraMap);
     meraPins = L.layerGroup().addTo(meraMap);
     conditionPins = L.layerGroup().addTo(meraMap);

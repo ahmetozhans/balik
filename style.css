@@ -98,3 +98,6 @@ a{color:var(--sea)}
 .map-basemaps{display:flex;gap:6px;margin:8px 0}
 .map-basemaps button[aria-pressed=true]{background:#d8ece8;color:#005c54;border-color:#a6ccc4}
 .cast-length span{display:inline-block;white-space:nowrap;border:1px solid #f59f42;background:#172b38;color:white;border-radius:7px;padding:4px 6px;font-weight:700}
+
+.imagery-review{display:flex;flex-wrap:wrap;align-items:end;gap:8px;margin-bottom:9px}
+.imagery-review label{margin:0}
