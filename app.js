@@ -3,6 +3,7 @@ const forecastHours = 'wind_speed_10m,wind_gusts_10m,pressure_msl,temperature_2m
 const marineHours = 'wave_height,sea_surface_temperature,ocean_current_velocity,wave_period,ocean_current_direction';
 const starterSpots = [
   { id: 'mudanya', name: 'Mudanya', lat: 40.379, lon: 28.884 },
+  { id: 'mudanya-deniz', name: 'Mudanya · Deniz noktası', lat: 40.383, lon: 28.884 },
   { id: 'gemlik', name: 'Gemlik', lat: 40.431, lon: 29.150 },
   { id: 'tirilye', name: 'Tirilye', lat: 40.396, lon: 28.797 },
   { id: 'iznik', name: 'İznik Gölü', lat: 40.427, lon: 29.489, water: 'fresh' },
@@ -62,7 +63,7 @@ let bottomPointRequest;
 let bottom = { text: '' };
 const layerCatalogs = new Map();
 const bottomSources = [
-  { url: 'https://drive.emodnet-geology.eu/geoserver/gtk/wms', type: 'substrate' },
+  { url: 'https://drive.emodnet-geology.eu/geoserver/gtk/wms', type: 'substrate', layers: ['seabed_substrate_1m', 'seabed_substrate_250k'] },
   { url: 'https://ows.emodnet-seabedhabitats.eu/geoserver/emodnet_view/wms', type: 'grass' }
 ];
 
@@ -71,6 +72,7 @@ function wmsUrl(source, params) {
 }
 
 async function bottomLayers(source, signal) {
+  if (source.layers) return source.layers.map(name => ({ name }));
   if (layerCatalogs.has(source.type)) return layerCatalogs.get(source.type);
   const response = await fetch(wmsUrl(source, { REQUEST: 'GetCapabilities' }), { signal });
   if (!response.ok) throw new Error('EMODnet katman listesi alınamadı');
@@ -83,9 +85,7 @@ async function bottomLayers(source, signal) {
     const queryable = layer.closest('[queryable]')?.getAttribute('queryable');
     return name && queryable === '1' ? [{ name, title }] : [];
   });
-  const candidates = layers.filter(({ name, title }) => source.type === 'substrate'
-    ? /substrat/i.test(name + ' ' + title) && /250[ ,._]?000|250k/i.test(name + ' ' + title)
-    : /seagrass|posidonia|cymodocea|zostera/i.test(name + ' ' + title) &&
+  const candidates = layers.filter(({ name, title }) => /seagrass|posidonia|cymodocea|zostera/i.test(name + ' ' + title) &&
       !/potential|suitability|probability|confidence|model|sample|point/i.test(name + ' ' + title));
   if (!candidates.length) throw new Error('Sorgulanabilir EMODnet katmanı bulunamadı');
   layerCatalogs.set(source.type, candidates);
@@ -97,6 +97,7 @@ function classifyBottom(properties) {
     typeof value === 'string' && /substr|folk|sediment|class|legend|description|label|^name$/i.test(key));
   for (const [, value] of values) {
     const label = value.trim();
+    if (/mud to muddy sand/i.test(label)) return 'Çamur ile çamurlu kum arası';
     if (/mixed|heterogeneous/i.test(label)) return 'Karışık zemin';
     if (/muddy sand|sand and mud/i.test(label)) return 'Çamurlu kum';
     if (/sandy mud|mud and sandy mud/i.test(label)) return 'Kumlu çamur';
@@ -108,9 +109,7 @@ function classifyBottom(properties) {
   return '';
 }
 
-async function queryBottom(source, spot, signal) {
-  const layers = await bottomLayers(source, signal);
-  const name = [...new Set(layers.map(layer => layer.name))].slice(0, 4).join(',');
+async function bottomFeatures(source, name, spot, signal) {
   const delta = .005;
   // EPSG:4326 uses latitude, longitude axis order in WMS 1.3.
   const response = await fetch(wmsUrl(source, {
@@ -122,14 +121,29 @@ async function queryBottom(source, spot, signal) {
   if (!response.ok) throw new Error('Dip verisi alınamadı');
   const data = await response.json();
   if (!Array.isArray(data.features)) throw new Error('Beklenmeyen dip verisi');
-  if (source.type === 'grass') {
-    const recorded = data.features.some(item => item.properties &&
+  return data.features;
+}
+
+async function queryBottom(source, spot, signal) {
+  const layers = await bottomLayers(source, signal);
+  if (source.type === 'substrate') {
+    const names = [...source.layers].reverse();
+    const results = await Promise.allSettled(names.map(name => bottomFeatures(source, name, spot, signal)));
+    for (const [index, result] of results.entries()) {
+      if (result.status !== 'fulfilled') continue;
+      const label = result.value.map(item => classifyBottom(item.properties || {})).find(Boolean);
+      if (label) return index === 0 ? label : label + ' (bölgesel, 1:1.000.000)';
+    }
+    if (results.some(result => result.status === 'rejected')) throw new Error('Bazı zemin katmanları alınamadı');
+    return '';
+  }
+  const name = [...new Set(layers.map(layer => layer.name))].slice(0, 4).join(',');
+  const features = await bottomFeatures(source, name, spot, signal);
+  const recorded = features.some(item => item.properties &&
       Object.entries(item.properties).some(([key, value]) => /habitat|species|class|eunis|^name$/i.test(key) &&
         /seagrass|posidonia|cymodocea|zostera/i.test(String(value)) &&
         !/unknown|absence|no seagrass|potential|suitability/i.test(String(value))));
-    return recorded ? 'Deniz çayırı kaydı' : '';
-  }
-  return data.features.map(item => classifyBottom(item.properties || {})).find(Boolean) || '';
+  return recorded ? 'Deniz çayırı kaydı' : '';
 }
 
 function bottomResult(results) {
@@ -138,7 +152,7 @@ function bottomResult(results) {
   return { label: labels.join(' + '), text: labels.length
     ? labels.join(' · ') + ' · EMODnet' + (partial ? ' · Bazı katmanlar sorgulanamadı.' : '')
     : partial ? 'Dip verisi doğrulanamadı. Bazı katmanlara erişilemiyor.'
-      : 'Bu koordinatta dip sınıfı kaydı bulunamadı.' };
+      : 'Bu koordinatta dip sınıfı kaydı bulunamadı. Kıyı çizgisindeysen su üzerinde bir noktaya dokunabilirsin.' };
 }
 
 let meraMap;
@@ -415,7 +429,7 @@ function fishingLight(hour) {
 }
 
 function speciesSuggestions(items, dipLabel) {
-  const grounds = dipLabel ? dipLabel.split(' + ') : [];
+  const grounds = dipLabel ? dipLabel.split(' + ').filter(label => !label.includes('(bölgesel,')) : [];
   const substrateKnown = grounds.some(ground => ground !== 'Deniz çayırı kaydı');
   return Object.entries(fish).filter(([, species]) => matchesMode(species)).flatMap(([key, species]) => {
     const profile = habitatProfiles[key];
