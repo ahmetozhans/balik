@@ -1,4 +1,4 @@
-const cacheName = 'mera-v17';
+const cacheName = 'mera-v18';
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(cacheName).then(cache => cache.addAll([
     './', './index.html', './app.js', './app.webmanifest', './icon.svg', './style.css'

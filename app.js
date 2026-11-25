@@ -165,6 +165,24 @@ const imageryPilotResult = 'Mudanya pilotunda arşiv görüntüleri incelendi. D
 const worldImagery = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
 const waybackImagery = 'https://wayback.maptiles.arcgis.com/arcgis/rest/services/World_Imagery/WMTS/1.0.0/default028mm/MapServer/tile/';
 
+const bursaCoastViews = {
+  all: [[40.29, 28.19], [40.61, 29.23]],
+  karacabey: [[40.32, 28.20], [40.52, 28.66]],
+  mudanya: [[40.33, 28.55], [40.53, 28.99]],
+  gemlik: [[40.35, 28.82], [40.59, 29.20]]
+};
+
+function showBursaCoast(event) {
+  if (!meraMap) return;
+  const select = event.currentTarget;
+  const bounds = bursaCoastViews[select.value];
+  if (!bounds) return;
+  setMapBase('satellite');
+  meraMap.closePopup();
+  meraMap.fitBounds(bounds, { padding: [12, 12], maxZoom: 15 });
+  $('map-status').textContent = select.selectedOptions[0].textContent + ' · Farklı yayınları görmek için uydu arşivinden tarih seç.';
+}
+
 function isImageryPilot(point) {
   return point.lat >= imageryPilot.south && point.lat <= imageryPilot.north &&
     point.lng >= imageryPilot.west && point.lng <= imageryPilot.east;
@@ -173,6 +191,7 @@ function isImageryPilot(point) {
 function showImageryPilot() {
   if (!meraMap) return;
   setMapBase('satellite');
+  $('bursa-coast').value = '';
   const bounds = [[imageryPilot.south, imageryPilot.west], [imageryPilot.north, imageryPilot.east]];
   if (!pilotOutline) {
     pilotOutline = L.rectangle(bounds, { color: '#2cbbce', weight: 2, dashArray: '5 5', fill: false, interactive: false }).addTo(meraMap);
@@ -463,6 +482,7 @@ function renderMap() {
     $('map-streets').onclick = () => setMapBase('streets');
     $('map-satellite').onclick = () => setMapBase('satellite');
     $('review-pilot').onclick = showImageryPilot;
+    $('bursa-coast').onchange = showBursaCoast;
     $('imagery-release').onchange = event => {
       const release = event.currentTarget.value;
       satelliteTiles.setUrl(release ? waybackImagery + release + '/{z}/{y}/{x}' : worldImagery);
@@ -476,6 +496,7 @@ function renderMap() {
   meraMap.invalidateSize({ pan: false });
   if (mapSpotId === activeSpot.id) return;
   mapSpotId = activeSpot.id;
+  $('bursa-coast').value = '';
   resetCast();
   meraMap.closePopup();
   meraMap.setView([lat, lon], 13);

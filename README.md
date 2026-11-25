@@ -21,3 +21,5 @@ Tür önerisi ayrı bir rehberdir. Uygulama belgelenen habitatı, sezon rehberin
 Meralar ekranında uydu görünümü Esri World Imagery ile açılır. Atış çizgisi iki seçili koordinatın arasındaki yaklaşık düz mesafeyi ve gerçek kuzeye göre yönü gösterir. Uydu görüntüsü zeminin görünür olduğu durumlarda yorum için kullanılabilir. Otomatik dip sınıflandırması uygulanmaz.
 
 Mudanya pilotunda yaklaşık 40.375844–40.377936 K ve 28.885803–28.888550 D sınırlarında Esri Wayback’in 2019-12-12, 2021-12-21, 2023-12-07, 2025-12-18 ve 2026-11-18 tarihli yayın karoları karşılaştırıldı. 2025 ve 2026 karoları bu alanda aynıydı. Yayın tarihleri çekim tarihi değildir. İncelenen görüntülerden kum, kaya veya bitki sınırı güvenilir biçimde çıkarılamadı.
+
+Bursa kıyıları menüsü uydu ve arşiv görünümünde Karacabey, Mudanya ve Gemlik’e yakınlaştırır. Pilot dip incelemesi yukarıdaki Mudanya alanıyla sınırlıdır.
