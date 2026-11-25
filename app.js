@@ -8,6 +8,11 @@ let forecasts = [];
 let acquiredAt = 0;
 let activeRequest;
 let lastRenderMinute;
+let activeSpot;
+let coastMap;
+const mapPins = new Map();
+const choices = new Map();
+const coastBounds = [[40.29, 28.16], [40.57, 29.23]];
 
 function element(tag, text, className) {
   const node = document.createElement(tag);
@@ -53,6 +58,60 @@ function renderLog() {
     }
     output.append(card);
   }
+}
+
+function updateSpotControls() {
+  $('result-title').textContent = activeSpot ? activeSpot.name : 'Mera seç';
+  for (const [name, button] of choices) button.setAttribute('aria-pressed', String(name === activeSpot?.name));
+  for (const [name, pin] of mapPins) {
+    const selected = name === activeSpot?.name;
+    pin.setStyle({ fillColor: selected ? '#efab5b' : '#4dc6ae', radius: selected ? 9 : 7 });
+    if (selected) pin.bringToFront();
+  }
+}
+
+function selectSpot(spot) {
+  activeSpot = spot;
+  updateSpotControls();
+  renderPlan();
+  if (coastMap) coastMap.panInside([spot.lat, spot.lon], { padding: [30, 35] });
+}
+
+function initializeMap() {
+  for (const spot of spots) {
+    const button = element('button', spot.name);
+    button.type = 'button';
+    button.onclick = () => selectSpot(spot);
+    choices.set(spot.name, button);
+    $('spot-choices').append(button);
+  }
+  updateSpotControls();
+  if (!window.L) {
+    $('map-status').textContent = 'Harita açılmadı. Aşağıdan mera seçebilirsin.';
+    return;
+  }
+  coastMap = L.map('coast-map', { scrollWheelZoom: false, maxZoom: 12, zoomSnap: .25, maxBounds: [[39.5, 27.1], [41.2, 30.2]], attributionControl: false });
+  coastMap.fitBounds(coastBounds, { padding: [14, 14] });
+  coastMap.setMinZoom(Math.floor(coastMap.getZoom()) - 1);
+  $('overview').onclick = () => coastMap.fitBounds(coastBounds, { padding: [14, 14] });
+  const credits = L.control.attribution({ prefix: false }).addTo(coastMap);
+  credits.addAttribution('Kıyı verisi: <a href="https://www.naturalearthdata.com/">Natural Earth</a>');
+  for (const spot of spots) {
+    const pin = L.circleMarker([spot.lat, spot.lon], { radius: 7, color: '#f6fbf3', weight: 2, fillColor: '#4dc6ae', fillOpacity: 1 });
+    pin.bindTooltip(element('span', spot.name), { direction: 'top' });
+    pin.on('click', () => selectSpot(spot));
+    pin.addTo(coastMap);
+    mapPins.set(spot.name, pin);
+  }
+  fetch('./coast.geojson').then(response => {
+    if (!response.ok) throw new Error('Kıyı verisi alınamadı');
+    return response.json();
+  }).then(geometry => {
+    L.geoJSON(geometry, { interactive: false, style: {
+      color: '#b0c9be', weight: 1.5, fillColor: '#d9dfca', fillOpacity: 1
+    } }).addTo(coastMap).bringToBack();
+    updateSpotControls();
+  }).catch(() => { $('map-status').textContent = 'Kıyı çizgisi yüklenemedi. Mera noktaları kullanılabilir.'; });
 }
 
 function initializeSelectors() {
@@ -190,8 +249,17 @@ function renderPlan(now = Date.now()) {
   const date = localDay(offset, now);
   const cards = $('recommendations');
   cards.replaceChildren();
+  if (!activeSpot) {
+    cards.append(element('p', 'Haritadaki bir noktaya dokun veya alttaki mera listesinden seç.', 'card empty'));
+    return;
+  }
   if (!forecasts.length) return;
-  const eligible = forecastTargets(forecasts, target);
+  const localForecast = forecasts.filter(({ spot }) => spot.name === activeSpot.name);
+  const eligible = forecastTargets(localForecast, target);
+  if (target && !activeSpot.targets.some(profile => profile.fish === target)) {
+    cards.append(element('p', fish[target].name + ' için bu merada saat önermeye yetecek kayıt yok.', 'card empty'));
+    return;
+  }
   $('status').textContent = 'Open-Meteo hava ve deniz tahmini · ' + clock.format(acquiredAt) +
     ' · ' + forecasts.length + '/' + spots.length + ' mera';
   const plans = plansFor(eligible, date, now);
@@ -199,13 +267,7 @@ function renderPlan(now = Date.now()) {
     renderEmptyPlan(cards, eligible, date, offset, target, now);
     return;
   }
-  const shown = new Set();
-  for (const plan of plans) {
-    if (shown.has(plan.spot.name)) continue;
-    shown.add(plan.spot.name);
-    cards.append(recommendation(plan.spot, plan.window));
-    if (shown.size === 3) break;
-  }
+  for (const plan of plans.slice(0, 3)) cards.append(recommendation(plan.spot, plan.window));
 }
 
 async function loadPlan() {
@@ -231,6 +293,7 @@ async function loadPlan() {
 }
 
 initializeSelectors();
+window.addEventListener('DOMContentLoaded', initializeMap, { once: true });
 renderLog();
 $('filters').addEventListener('submit', event => event.preventDefault());
 $('filters').addEventListener('change', () => renderPlan());
@@ -245,7 +308,10 @@ for (const button of document.querySelectorAll('nav button')) {
       if (active) tab.setAttribute('aria-current', 'page');
       else tab.removeAttribute('aria-current');
     }
-    if (button.dataset.view === 'plan') renderPlan();
+    if (button.dataset.view === 'plan') {
+      coastMap?.invalidateSize();
+      renderPlan();
+    }
     window.scrollTo(0, 0);
   });
 }

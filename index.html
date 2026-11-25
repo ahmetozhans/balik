@@ -8,19 +8,23 @@
   <link rel="manifest" href="app.webmanifest">
   <link rel="icon" href="icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icon.svg">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="anonymous">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <main>
-    <header><a class="brand" href="./"><img src="icon.svg" alt="">Mera</a><span>Bursa kıyıları</span></header>
-    <nav aria-label="Ana menü"><button data-view="plan" aria-current="page">Av planı</button><button data-view="log">Av defteri</button></nav>
+    <header><a class="brand" href="./"><img src="icon.svg" alt="">Mera</a><span class="header-region">Bursa kıyıları</span></header>
+    <nav aria-label="Ana menü"><button data-view="plan" aria-current="page">Meralar</button><button data-view="log">Av defteri</button></nav>
     <section id="plan">
-      <div class="intro"><h1>Kıyıda nerede<br>ne deneyelim?</h1><p>Merayı, balığı, saati ve yemi tek ekranda gör.</p></div>
+      <div class="map-heading"><h1>Bursa kıyıları</h1><button type="button" id="overview">Tüm kıyı</button></div>
+      <div class="map-wrap"><div id="coast-map" aria-label="Bursa kıyıları ve meralar"></div><p id="map-status" role="status"></p></div>
+      <p class="map-scale">Genel kıyı görünümü · atış noktası ayrıntısı içermez.</p>
+      <div id="spot-choices" class="spot-choices" role="group" aria-label="Mera seç"></div>
       <form class="filters" id="filters">
         <label>Ne zaman?<select id="day"><option value="0">Bugün</option><option value="1">Yarın</option></select></label>
         <label>Hedef balık<select id="target"><option value="">Tüm türler</option></select></label>
       </form>
-      <div class="result-heading"><h2>Av önerileri</h2><button type="button" class="quiet" id="refresh">Yenile</button></div>
+      <div class="result-heading"><h2 id="result-title">Mera seç</h2><button type="button" class="quiet" id="refresh">Yenile</button></div>
       <p id="status" role="status"></p>
       <div id="recommendations" class="recommendations"></div>
       <details class="method"><summary>Öneriler nasıl hazırlanıyor?</summary><p>Yerel av anlatımları ve bölge rehberleri aday türleri belirler. Güncel hava ve deniz modeli, aday saatleri sıralar. Dip verisi doğrulanmamışsa dip türü öneriye katılmaz.</p><a href="https://www.mgm.gov.tr/deniz/" target="_blank" rel="noopener">MGM deniz tahmini</a></details>
@@ -43,6 +47,7 @@
       <div id="records"></div>
     </section>
   </main>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin="anonymous" defer></script>
   <script src="app.js" type="module"></script>
 </body>
 </html>

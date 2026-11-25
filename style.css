@@ -52,3 +52,16 @@ details p{margin:8px 0}
 .empty button{margin:5px 6px 0 0}
 
 .empty-preview small{display:block;margin-bottom:5px}
+
+.map-heading{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:10px}
+.map-heading h1{font-size:clamp(27px,6vw,43px);margin:0}
+.map-wrap{position:relative;overflow:hidden;border-radius:17px;border:1px solid #809d92;background:#173e46}
+#coast-map{height:clamp(275px,47vh,510px);background:#173e46}
+#map-status{position:absolute;z-index:500;left:8px;bottom:13px;max-width:calc(100% - 16px);padding:5px 8px;background:#fffdf6;border-radius:6px;font-size:13px}
+#map-status:empty{display:none}
+.spot-choices{display:flex;gap:7px;overflow-x:auto;padding:5px 3px 8px;margin-top:7px}
+.spot-choices button{white-space:nowrap;font-size:14px}
+.spot-choices button[aria-pressed="true"]{background:#244b3d;color:white;border-color:#244b3d}
+#coast-map .leaflet-tooltip{background:#fffdf6;color:#203c35;border:none;font-weight:700}
+
+.map-scale{color:var(--muted);font-size:12px;margin:6px 0 0}
