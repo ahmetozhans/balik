@@ -4,13 +4,25 @@ const marineHours = 'wave_height,sea_surface_temperature,ocean_current_velocity'
 const starterSpots = [
   { id: 'mudanya', name: 'Mudanya', lat: 40.379, lon: 28.884 },
   { id: 'gemlik', name: 'Gemlik', lat: 40.431, lon: 29.150 },
-  { id: 'tirilye', name: 'Tirilye', lat: 40.396, lon: 28.797 }
+  { id: 'tirilye', name: 'Tirilye', lat: 40.396, lon: 28.797 },
+  { id: 'iznik', name: 'İznik Gölü', lat: 40.427, lon: 29.489, water: 'fresh' },
+  { id: 'uluabat', name: 'Uluabat Gölü', lat: 40.161, lon: 28.627, water: 'fresh' }
 ];
 const fish = {
   levrek: { name: 'Levrek', months: [1, 2, 3, 9, 10, 11, 12], temp: 16, bait: 'Silikon balık veya küçük minnow', rig: 'Hafif spin' },
   istavrit: { name: 'İstavrit', months: [4, 5, 6, 7, 8, 9, 10, 11], temp: 19, bait: 'Tüylü veya silikonlu köstek', rig: 'İstavrit çaparisi' },
   lufer: { name: 'Lüfer', months: [9, 10, 11, 12], temp: 17, bait: 'Kaşık veya ince profilli minnow', rig: 'Spin takımı' },
-  palamut: { name: 'Palamut', months: [8, 9, 10, 11], temp: 21, bait: 'Metal jig veya uzun minnow', rig: 'Kıyıdan spin' }
+  palamut: { name: 'Palamut', months: [8, 9, 10, 11], temp: 21, bait: 'Metal jig veya uzun minnow', rig: 'Kıyıdan spin' },
+  mezgit: { name: 'Mezgit', months: [1, 2, 3, 10, 11, 12], bait: 'Karides parçası veya kum kurdu', rig: 'Yemli dip takımı' },
+  kefal: { name: 'Kefal', months: [4, 5, 6, 7, 8, 9, 10], bait: 'Ekmek veya hamur', rig: 'Şamandıralı ince takım' },
+  izmarit: { name: 'İzmarit', months: [4, 5, 6, 9, 10, 11], bait: 'Kum kurdu veya karides', rig: 'İnce çapari veya kısa köstekli dip takımı' },
+  isparoz: { name: 'İsparoz', months: [5, 6, 7, 8, 9, 10], bait: 'Kum kurdu veya karides', rig: 'İnce dip takımı' },
+  gumus: { name: 'Gümüş balığı', months: [1, 2, 3, 10, 11, 12], bait: 'Ekmek kırıntısı veya mikro çapari', rig: 'Şamandıralı ince takım' },
+  zargana: { name: 'Zargana', months: [6, 7, 8, 9, 10], bait: 'Balık şeridi veya küçük kaşık', rig: 'Yüzey şamandırası' },
+  golGumus: { name: 'Göl gümüşü', water: 'fresh', months: [4, 5, 6, 7, 8, 9, 10], bait: 'Küçük ekmek parçası', rig: 'İnce şamandıralı takım' },
+  sazan: { name: 'Sazan', water: 'fresh', months: [5, 6, 7, 8, 9, 10], bait: 'Mısır veya boilie', rig: 'Dip takımı' },
+  turna: { name: 'Turna', water: 'fresh', months: [4, 5, 9, 10, 11], bait: 'Kaşık veya silikon', rig: 'Çelik telli spin takımı' },
+  tatliLevrek: { name: 'Tatlı su levreği', water: 'fresh', months: [5, 6, 7, 8, 9, 10], bait: 'Küçük silikon', rig: 'Hafif spin' }
 };
 const dateFormat = new Intl.DateTimeFormat('tr-TR', { timeZone: 'Europe/Istanbul', dateStyle: 'medium', timeStyle: 'short' });
 const dayFormat = new Intl.DateTimeFormat('tr-TR', { timeZone: 'Europe/Istanbul', weekday: 'short', month: 'short', day: 'numeric' });
@@ -43,7 +55,19 @@ function fillSelect(select, items, selected) {
 let spots = [...starterSpots, ...read('mera:spots', [])];
 let records = read('mera:log', []);
 let activeSpot = spots.find(spot => spot.id === read('mera:active', 'mudanya')) || spots[0];
+let mode = read('mera:mode', 'shore');
+$('mode').value = mode;
+$('wave-limit').value = read('mera:wave-limit', '') ?? '';
+let heatRequest;
 let hours = [];
+function matchesMode(item) { return (item.water === 'fresh') === (mode === 'fresh'); }
+function modeSpots() { return spots.filter(matchesMode); }
+function refreshSpecies() {
+  const filtered = Object.entries(fish).filter(([, item]) => matchesMode(item)).map(([id, item]) => [id, item.name]);
+  fillSelect($('species'), filtered, read('mera:species:' + mode, read('mera:species', 'levrek')));
+  fillSelect($('log-fish'), filtered, $('species').value);
+}
+if (!matchesMode(activeSpot)) activeSpot = modeSpots()[0];
 let request;
 let selectedView = 'today';
 let selectedMetric = 'wind';
@@ -52,14 +76,13 @@ const metrics = {
   wind: ['Rüzgâr', 'km/sa'], wave: ['Dalga', 'm'], pressure: ['Basınç', 'hPa'],
   water: ['Su sıcaklığı', '°C'], current: ['Akıntı', 'm/sn']
 };
-const speciesOptions = Object.entries(fish).map(([id, item]) => [id, item.name]);
-fillSelect($('species'), speciesOptions, read('mera:species', 'levrek'));
-fillSelect($('log-fish'), speciesOptions);
+refreshSpecies();
 $('log-form').elements.date.value = localTime();
 function refreshSpots() {
-  fillSelect($('spot'), spots.map(spot => [spot.id, spot.name]), activeSpot.id);
-  fillSelect($('compare-spot'), spots.filter(spot => spot.id !== activeSpot.id).map(spot => [spot.id, spot.name]), $('compare-spot').value);
+  fillSelect($('spot'), modeSpots().map(spot => [spot.id, spot.name]), activeSpot.id);
+  fillSelect($('compare-spot'), modeSpots().filter(spot => spot.id !== activeSpot.id).map(spot => [spot.id, spot.name]), $('compare-spot').value);
   clearComparison();
+  resetHeat();
 }
 function renderMap() {
   const { lat, lon } = activeSpot;
@@ -80,6 +103,9 @@ async function getData(url, signal) {
   const response = await fetch(url, { signal });
   if (!response.ok) throw new Error('Tahmin alınamadı');
   return response.json();
+}
+function fetchMarine(spot, url, signal) {
+  return spot.water === 'fresh' ? Promise.resolve(null) : getData(url, signal).catch(() => null);
 }
 function combine(weather, marine) {
   const indexes = new Map((marine?.hourly?.time || []).map((time, index) => [time, index]));
@@ -108,13 +134,13 @@ async function loadForecast() {
   const timer = setTimeout(() => controller.abort(), 12000);
   try {
     const [weatherUrl, marineUrl] = urls(spot);
-    const marinePromise = getData(marineUrl, controller.signal).catch(() => null);
+    const marinePromise = fetchMarine(spot, marineUrl, controller.signal);
     const weather = await getData(weatherUrl, controller.signal);
     const marine = await marinePromise;
     if (request !== controller) return;
     hours = combine(weather, marine);
     write(key, { hours, at: Date.now() });
-    $('status').textContent = hours.some(item => Number.isFinite(item.wave) || Number.isFinite(item.water))
+    $('status').textContent = spot.water === 'fresh' ? 'Kaynak: Open-Meteo hava tahmini. Göl su verisi mevcut değil.' : hours.some(item => Number.isFinite(item.wave) || Number.isFinite(item.water))
       ? 'Kaynak: Open-Meteo hava ve deniz tahmini.'
       : 'Deniz verisi bulunamadı. Puan yalnızca mevcut verilerle hesaplandı.';
   } catch {
@@ -154,6 +180,137 @@ function best(items, species) {
 }
 function format(value, unit) {
   return Number.isFinite(value) ? new Intl.NumberFormat('tr-TR', { maximumFractionDigits: 1 }).format(value) + ' ' + unit : '—';
+}
+function renderMoon(day) {
+  const noon = Date.parse(day + 'T12:00:00+03:00');
+  const period = 29.53059;
+  const elapsed = (noon - Date.UTC(2000, 0, 6, 18, 14)) / 86400000;
+  const age = ((elapsed % period) + period) % period;
+  const phases = ['Yeni ay', 'Büyüyen hilal', 'İlk dördün', 'Büyüyen şişkin ay',
+    'Dolunay', 'Küçülen şişkin ay', 'Son dördün', 'Küçülen hilal'];
+  const phase = phases[Math.round(age / period * 8) % 8];
+  // Approximate lunar transit from elongation and local mean solar noon.
+  const transit = 15 - activeSpot.lon / 15 + age / period * 24;
+  const clock = hour => {
+    const minutes = ((Math.round(hour * 60) % 1440) + 1440) % 1440;
+    return String(Math.floor(minutes / 60)).padStart(2, '0') + ':' + String(minutes % 60).padStart(2, '0');
+  };
+  const window = hour => clock(hour - 1) + '–' + clock(hour + 1);
+  const card = el('article', '');
+  card.append(el('h2', 'Solunar av saatleri'),
+    el('p', phase + ' · Ana pencereler ' + window(transit) + ' ve ' + window(transit + 12)),
+    el('small', 'Ay evresi ve meranın boylamıyla yaklaşık hesaplanır. Ay doğuşu ve batışına bağlı kısa pencereler dahil değildir.'));
+  $('moon-content').replaceChildren(card);
+}
+function renderWaveLimit(items) {
+  $('boat-card').hidden = mode !== 'boat';
+  const limit = $('wave-limit').valueAsNumber;
+  const waves = items.filter(item => Number.isFinite(item.wave));
+  const warnings = waves.filter(item => item.wave >= limit);
+  let message = 'Kendi dalga eşiğini gir.';
+  if (Number.isFinite(limit) && $('wave-limit').validity.valid) {
+    message = !waves.length ? 'Kalan saatler için dalga verisi yok.' : warnings.length
+      ? 'Eşik aşımı: ' + warnings.map(item => item.time.slice(11, 16) + ' (' + format(item.wave, 'm') + ')').join(', ')
+      : 'Verisi olan kalan saatlerde girilen eşiğe ulaşılmıyor.';
+  }
+  $('wave-status').textContent = message;
+}
+function saveReminder(time, spot, species) {
+  const stamp = date => date.toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z');
+  const escape = value => value.replace(/[\\;,]/g, '\\$&').replace(/[\r\n]/g, ' ');
+  const start = new Date(time + '+03:00');
+  const calendar = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Mera//Av Takvimi//TR',
+    'BEGIN:VEVENT', 'UID:' + crypto.randomUUID() + '@mera', 'DTSTAMP:' + stamp(new Date()),
+    'DTSTART:' + stamp(start), 'DTEND:' + stamp(new Date(+start + 3600000)),
+    'SUMMARY:' + escape(species + ' avı · ' + spot), 'BEGIN:VALARM', 'TRIGGER:-PT30M',
+    'ACTION:DISPLAY', 'DESCRIPTION:Av saati yaklaşıyor', 'END:VALARM', 'END:VEVENT', 'END:VCALENDAR', ''].join('\r\n');
+  const blob = new Blob([calendar], { type: 'text/calendar;charset=utf-8' });
+  const anchor = el('a', '');
+  anchor.download = 'mera-av-hatirlatmasi.ics';
+  anchor.href = URL.createObjectURL(blob);
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+  setTimeout(() => URL.revokeObjectURL(anchor.href), 30000);
+}
+function resetHeat() {
+  heatRequest?.abort();
+  heatRequest = undefined;
+  $('heat-button').disabled = false;
+  $('heat-result').replaceChildren();
+}
+async function loadHeatMap() {
+  resetHeat();
+  const controller = new AbortController();
+  heatRequest = controller;
+  const button = $('heat-button');
+  const result = $('heat-result');
+  const species = fish[$('species').value];
+  const now = Date.parse(localTime().slice(0, 13) + ':00+03:00');
+  const nearby = modeSpots().sort((a, b) =>
+    Math.hypot(a.lat - activeSpot.lat, a.lon - activeSpot.lon) -
+    Math.hypot(b.lat - activeSpot.lat, b.lon - activeSpot.lon)).slice(0, 8);
+  button.disabled = true;
+  result.textContent = 'Mera puanları yükleniyor…';
+  const timer = setTimeout(() => controller.abort(), 12000);
+  try {
+    const entries = await Promise.allSettled(nearby.map(async spot => {
+      const [weatherUrl, marineUrl] = urls(spot);
+      const [weather, marine] = await Promise.all([
+        getData(weatherUrl, controller.signal), fetchMarine(spot, marineUrl, controller.signal)
+      ]);
+      if (controller.signal.aborted) throw new Error('Zaman aşımı');
+      const forecast = combine(weather, marine).filter(hour => {
+        const time = Date.parse(hour.time + '+03:00');
+        return time >= now && time < now + 86400000;
+      });
+      return { spot, forecast };
+    }));
+    if (heatRequest !== controller) return;
+    const ready = entries.flatMap(entry => entry.status === 'fulfilled' && entry.value.forecast.length ? [entry.value] : []);
+    if (!ready.length) {
+      result.textContent = 'Harita için tahmin alınamadı.';
+      return;
+    }
+    const maps = ready.map(entry => new Map(entry.forecast.map(hour => [hour.time, hour])));
+    const shared = [...maps[0].keys()].filter(time => maps.every(map => map.has(time)));
+    if (!shared.length) {
+      result.textContent = 'Ortak tahmin saati bulunamadı.';
+      return;
+    }
+    const common = shared.map(time => {
+      const set = maps.map(map => map.get(time));
+      return set.map(hour => ({
+        ...hour, water: set.every(item => Number.isFinite(item.water)) ? hour.water : undefined,
+        wave: set.every(item => Number.isFinite(item.wave)) ? hour.wave : undefined
+      }));
+    });
+    const points = ready.map(({ spot }, index) => ({ spot, value: best(common.map(set => set[index]), species).result.value }));
+    result.replaceChildren(el('p', species.name + ' · ' + ready.length + '/' + nearby.length + ' mera'));
+    const plot = el('div', '', 'heat-map');
+    plot.setAttribute('aria-label', 'Meraların yaklaşık konumları. Üst taraf kuzey.');
+    const list = el('div', '', 'heat-list');
+    const lats = points.map(({ spot }) => spot.lat);
+    const lons = points.map(({ spot }) => spot.lon);
+    const latMin = Math.min(...lats) - .02;
+    const lonMin = Math.min(...lons) - .02;
+    const latSpan = Math.max(...lats) + .02 - latMin;
+    const lonSpan = Math.max(...lons) + .02 - lonMin;
+    for (const { spot, value } of points) {
+      const pin = el('button', value, 'heat-point');
+      pin.style.left = (100 * (spot.lon - lonMin) / lonSpan) + '%';
+      pin.style.top = (100 * (1 - (spot.lat - latMin) / latSpan)) + '%';
+      pin.style.background = 'hsl(' + Math.round(value * 1.2) + ' 73% 68%)';
+      pin.setAttribute('aria-label', spot.name + ' ' + value + ' puan');
+      pin.onclick = () => changeSpot(spot);
+      plot.append(pin);
+      list.append(el('p', spot.name + ' · ' + value + ' / 100'));
+    }
+    result.append(plot, list);
+  } finally {
+    clearTimeout(timer);
+    if (heatRequest === controller) button.disabled = false;
+  }
 }
 function metricCard(items) {
   const card = el('article', '');
@@ -221,7 +378,7 @@ async function compareSpots() {
       const [weatherUrl, marineUrl] = urls(spot);
       const [weather, marine] = await Promise.all([
         getData(weatherUrl, controller.signal),
-        getData(marineUrl, controller.signal).catch(() => null)
+        fetchMarine(spot, marineUrl, controller.signal)
       ]);
       return combine(weather, marine);
     }));
@@ -264,6 +421,8 @@ function renderForecast() {
   const upcoming = hours.filter(item => item.time.slice(0, 13) >= now.slice(0, 13));
   const todaysHours = upcoming.filter(item => item.time.slice(0, 10) === now.slice(0, 10));
   const species = fish[$('species').value];
+  renderMoon(now.slice(0, 10));
+  renderWaveLimit(todaysHours);
   if (!upcoming.length) {
     const refresh = el('button', 'Tahmini yenile');
     refresh.onclick = loadForecast;
@@ -288,7 +447,7 @@ function renderForecast() {
     today.append(card);
     const ranking = el('article', '');
     ranking.append(el('h2', 'Bugün hangi balık?'));
-    const ranked = Object.entries(fish).map(([id, item]) => [id, item, best(todaysHours, item)])
+    const ranked = Object.entries(fish).filter(([, item]) => matchesMode(item)).map(([id, item]) => [id, item, best(todaysHours, item)])
       .sort((a, b) => b[2].result.value - a[2].result.value);
     for (const [id, item, peak] of ranked) {
       const button = el('button', '', 'rank-row');
@@ -323,6 +482,9 @@ function renderForecast() {
     const card = el('article', '');
     card.append(el('h2', dayFormat.format(new Date(date + 'T12:00:00+03:00'))),
       el('p', species.name + ' · ' + top.item.time.slice(11, 16) + ' · ' + top.result.value + ' / 100'));
+    const reminder = el('button', 'Takvime ekle', 'calendar-button');
+    reminder.onclick = () => saveReminder(top.item.time, activeSpot.name, species.name);
+    card.append(reminder);
     plan.append(card);
   }
 }
@@ -331,7 +493,7 @@ function renderFish() {
   const months = new Intl.DateTimeFormat('tr-TR', { timeZone: 'UTC', month: 'long' });
   guide.replaceChildren();
   const selected = Number($('season').value);
-  for (const item of Object.values(fish).filter(item => !selected || item.months.includes(selected))) {
+  for (const item of Object.values(fish).filter(item => matchesMode(item) && (!selected || item.months.includes(selected)))) {
     const card = el('article', '');
     card.append(el('h2', item.name), el('p', 'Yem: ' + item.bait), el('p', 'Takım: ' + item.rig),
       el('small', 'Puanlamada öne çıkan aylar: ' + item.months.map(month => months.format(new Date(Date.UTC(2026, month - 1, 15)))).join(', ')));
@@ -422,7 +584,7 @@ $('spot-form').onsubmit = event => {
   const data = new FormData(form);
   const name = data.get('name').trim();
   if (!name) return;
-  const spot = { id: crypto.randomUUID(), name, lat: Number(data.get('lat')), lon: Number(data.get('lon')) };
+  const spot = { id: crypto.randomUUID(), name, lat: Number(data.get('lat')), lon: Number(data.get('lon')), water: mode === 'fresh' ? 'fresh' : 'sea' };
   const next = [...spots, spot];
   if (!write('mera:spots', next.slice(starterSpots.length))) {
     $('gps-status').textContent = 'Mera kaydedilemedi. Cihaz depolamasını kontrol et.';
@@ -455,7 +617,8 @@ for (let month = 0; month < 12; month++) {
 $('season').onchange = renderFish;
 $('species').onchange = () => {
   clearComparison();
-  write('mera:species', $('species').value);
+  resetHeat();
+  write('mera:species:' + mode, $('species').value);
   renderForecast();
 };
 const tabs = document.querySelectorAll('nav button');
@@ -470,6 +633,18 @@ for (const tab of tabs) {
     renderMap();
   };
 }
+$('mode').onchange = () => {
+  mode = $('mode').value;
+  write('mera:mode', mode);
+  refreshSpecies();
+  changeSpot(matchesMode(activeSpot) ? activeSpot : modeSpots()[0]);
+  renderFish();
+};
+$('wave-limit').onchange = () => {
+  write('mera:wave-limit', $('wave-limit').value);
+  renderForecast();
+};
+$('heat-button').onclick = loadHeatMap;
 refreshSpots();
 renderMap();
 renderFish();

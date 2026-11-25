@@ -45,3 +45,7 @@ th,td{text-align:left;padding:9px 6px;border-bottom:1px solid var(--line);white-
 .map{width:100%;height:270px;border:0;border-radius:12px}
 summary{cursor:pointer}
 [hidden]{display:none!important}
+.heat-map{position:relative;aspect-ratio:4/3;margin-top:14px;border-radius:12px;overflow:hidden;background:#263a4c}
+.heat-point{position:absolute;transform:translate(-50%,-50%);z-index:1;border:2px solid #12212d;border-radius:50%;color:#101a23;font-weight:800;min-width:38px;padding:7px;box-shadow:0 0 18px currentColor}
+.heat-list{display:grid;gap:6px;margin-top:10px}
+.calendar-button{margin-top:5px}
