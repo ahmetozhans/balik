@@ -83,3 +83,8 @@ a{color:var(--sea)}
 .map-card .spread{margin-bottom:8px}
 .map-options,#bottom-panel{margin-top:15px;padding-top:12px;border-top:1px solid var(--line)}
 #bottom-map-legend{margin-top:8px}
+
+.dip-popup>small,.dip-reference>small{display:block;margin:3px 0 6px}
+.dip-popup p{margin:6px 0}
+.dip-reference{border-top:1px solid var(--line);margin-top:8px;padding-top:8px}
+.dip-reference button{margin-top:4px;padding:6px;font-size:inherit}

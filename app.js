@@ -162,19 +162,55 @@ let dipLayers;
 let dipLayerControl;
 let mapSpotId;
 
+const checkedDipPoints = [
+  { name: 'Mudanya · Deniz noktası', lat: 40.383, lon: 28.884 },
+  { name: 'Gemlik', lat: 40.431, lon: 29.150 },
+  { name: 'Tirilye', lat: 40.396, lon: 28.797 }
+];
+
+function nearestCheckedDip(point) {
+  const latitudeScale = 111195;
+  const longitudeScale = latitudeScale * Math.cos(point.lat * Math.PI / 180);
+  return checkedDipPoints.reduce((nearest, candidate) => {
+    const distance = Math.hypot((candidate.lat - point.lat) * latitudeScale, (candidate.lon - point.lng) * longitudeScale);
+    if (distance < 20 || distance > 900 || (nearest && nearest.distance <= distance)) return nearest;
+    return { ...candidate, distance };
+  }, null);
+}
+
 async function inspectMapPoint(event) {
   if (mode === 'fresh') return;
   bottomPointRequest?.abort();
   const request = new AbortController();
   bottomPointRequest = request;
   const point = event.latlng.wrap();
-  const text = el('div', 'Dip verisi sorgulanıyor…');
-  const popup = L.popup().setLatLng(point).setContent(text).openOn(meraMap);
+  const text = el('div', '', 'dip-popup');
+  text.append(el('strong', 'Seçilen nokta'), el('small', point.lat.toFixed(5) + ', ' + point.lng.toFixed(5)),
+    el('p', 'Dip verisi sorgulanıyor…'));
+  const popup = L.popup({ maxWidth: 265 }).setLatLng(point).setContent(text).openOn(meraMap);
   const timer = setTimeout(() => request.abort(), 12000);
   try {
-    const values = await Promise.allSettled(bottomSources.map(source => queryBottom(source, point, request.signal)));
+    const values = await Promise.allSettled(bottomSources.map(source => queryBottom(source, { lat: point.lat, lon: point.lng }, request.signal)));
     if (bottomPointRequest !== request || !meraMap.hasLayer(popup)) return;
-    text.textContent = bottomResult(values).text;
+    const result = bottomResult(values);
+    text.lastElementChild.textContent = result.label ? result.text : values.some(value => value.status === 'rejected')
+      ? 'Dip kaydı doğrulanamadı.' : 'Bu koordinatta dip kaydı yok.';
+    const nearby = !result.label && nearestCheckedDip(point);
+    if (nearby) {
+      const reference = el('div', '', 'dip-reference');
+      reference.append(el('strong', 'Yakın EMODnet kaydı · ' + Math.round(nearby.distance) + ' m'),
+        el('p', nearby.name + ' · Çamur ile çamurlu kum arası'),
+        el('small', 'Bölgesel katman · 1:1.000.000'));
+      const link = el('button', 'Kayıt noktasını göster');
+      link.type = 'button';
+      link.onclick = () => {
+        const location = L.latLng(nearby.lat, nearby.lon);
+        meraMap.panTo(location);
+        inspectMapPoint({ latlng: location });
+      };
+      reference.append(link);
+      text.append(reference);
+    }
     popup.update();
   } finally { clearTimeout(timer); }
 }
@@ -317,7 +353,10 @@ function renderMap() {
       radius: active ? 8 : 5, color: '#fff', weight: 2, fillColor: active ? '#00766d' : '#26648a', fillOpacity: 1
     });
     pin.bindTooltip(el('span', spot.name));
-    pin.on('click', () => active ? inspectMapPoint({ latlng: pin.getLatLng() }) : changeSpot(spot));
+    pin.on('click', () => {
+      if (!active) changeSpot(spot);
+      inspectMapPoint({ latlng: pin.getLatLng() });
+    });
     meraPins.addLayer(pin);
   }
   renderBottomMap();
