@@ -13,3 +13,5 @@ Av kayıtları, fotoğraflar ve kaydedilen meralar tarayıcıda saklanır. Taray
 Kıyı, tekne ve tatlı su modlarında uygun meralar ve türler gösterilir. Göl modu hava tahminini kullanır. Tekne modu kullanıcının girdiği dalga eşiğini saatlik tahminle karşılaştırır. Isı haritası kayıtlı meralara ait nokta puanlarını gösterir. Ana solunar pencereler yaklaşık hesaplanır. 7 Gün ekranındaki takvim dosyası aktarıldığında av saatinden 30 dakika önce hatırlatma içerir.
 
 Bursa tür listesi için [Mudanya](https://www.baliksende.com/nokta/bursa/mudanya/mudanya), [Gemlik](https://www.baliksende.com/nokta/bursa/gemlik/gemlik) ve [Bursa İl Tarım ve Orman Müdürlüğü](https://bursa.tarimorman.gov.tr/Duyuru/787/Uluabat-Golu-Su-Urunleri-Istihsal-Hakkinin-Kiraya-Verilmesi-Hakkinda-Duyuru) kaynakları incelendi. Ay filtreleri av tahminindeki sezon varsayımlarını gösterir.
+
+Deniz modunda dip verisi, seçili meranın koordinatıyla EMODnet Geology ve Seabed Habitats WMS servislerinden sorgulanır. Sonuçlar katman kapsamına ve çözünürlüğüne bağlıdır.

@@ -55,8 +55,111 @@ function fillSelect(select, items, selected) {
 }
 let spots = [...starterSpots, ...read('mera:spots', [])];
 let records = read('mera:log', []);
-let bottomTypes = read('mera:bottom-types', {});
-const bottomLabels = { sand: 'Kum', rock: 'Kaya', grass: 'Deniz çayırı', mud: 'Çamur', mixed: 'Karışık' };
+let bottomRequest;
+let bottom = { text: '' };
+const layerCatalogs = new Map();
+const bottomSources = [
+  { url: 'https://drive.emodnet-geology.eu/geoserver/gtk/wms', type: 'substrate' },
+  { url: 'https://ows.emodnet-seabedhabitats.eu/geoserver/emodnet_view/wms', type: 'grass' }
+];
+
+function wmsUrl(source, params) {
+  return source.url + '?' + new URLSearchParams({ SERVICE: 'WMS', VERSION: '1.3.0', ...params });
+}
+
+async function bottomLayers(source, signal) {
+  if (layerCatalogs.has(source.type)) return layerCatalogs.get(source.type);
+  const response = await fetch(wmsUrl(source, { REQUEST: 'GetCapabilities' }), { signal });
+  if (!response.ok) throw new Error('EMODnet katman listesi alınamadı');
+  const xml = new DOMParser().parseFromString(await response.text(), 'application/xml');
+  if (xml.documentElement.localName !== 'WMS_Capabilities') throw new Error('Beklenmeyen katman yanıtı');
+  const layers = [...xml.getElementsByTagNameNS('*', 'Layer')].flatMap(layer => {
+    const child = name => [...layer.children].find(item => item.localName === name)?.textContent.trim() || '';
+    const name = child('Name');
+    const title = child('Title');
+    const queryable = layer.closest('[queryable]')?.getAttribute('queryable');
+    return name && queryable === '1' ? [{ name, title }] : [];
+  });
+  const candidates = layers.filter(({ name, title }) => source.type === 'substrate'
+    ? /substrat/i.test(name + ' ' + title) && /250[ ,._]?000|250k/i.test(name + ' ' + title)
+    : /seagrass|posidonia|cymodocea|zostera/i.test(name + ' ' + title) &&
+      !/potential|suitability|probability|confidence|model|sample|point/i.test(name + ' ' + title));
+  if (!candidates.length) throw new Error('Sorgulanabilir EMODnet katmanı bulunamadı');
+  layerCatalogs.set(source.type, candidates);
+  return candidates;
+}
+
+function classifyBottom(properties) {
+  const values = Object.entries(properties).filter(([key, value]) =>
+    typeof value === 'string' && /substr|folk|sediment|class|legend|description|label|^name$/i.test(key));
+  for (const [, value] of values) {
+    const label = value.trim();
+    if (/mixed|heterogeneous/i.test(label)) return 'Karışık zemin';
+    if (/muddy sand|sand and mud/i.test(label)) return 'Çamurlu kum';
+    if (/sandy mud|mud and sandy mud/i.test(label)) return 'Kumlu çamur';
+    if (/rock|bedrock/i.test(label)) return 'Kaya / sert zemin';
+    if (/gravel|coarse sediment/i.test(label)) return 'Çakıl / iri tortu';
+    if (/mud|clay|silt/i.test(label)) return 'Çamur / ince tortu';
+    if (/\\bsands?\\b/i.test(label)) return 'Kum';
+  }
+  return '';
+}
+
+async function queryBottom(source, spot, signal) {
+  const layers = await bottomLayers(source, signal);
+  const name = [...new Set(layers.map(layer => layer.name))].slice(0, 4).join(',');
+  const delta = .005;
+  // EPSG:4326 uses latitude, longitude axis order in WMS 1.3.
+  const response = await fetch(wmsUrl(source, {
+    REQUEST: 'GetFeatureInfo', CRS: 'EPSG:4326', LAYERS: name, QUERY_LAYERS: name,
+    BBOX: [spot.lat - delta, spot.lon - delta, spot.lat + delta, spot.lon + delta].join(','),
+    STYLES: '', WIDTH: 101, HEIGHT: 101, I: 50, J: 50, FORMAT: 'image/png',
+    INFO_FORMAT: 'application/json', FEATURE_COUNT: 5
+  }), { signal });
+  if (!response.ok) throw new Error('Dip verisi alınamadı');
+  const data = await response.json();
+  if (!Array.isArray(data.features)) throw new Error('Beklenmeyen dip verisi');
+  if (source.type === 'grass') {
+    const recorded = data.features.some(item => item.properties &&
+      Object.entries(item.properties).some(([key, value]) => /habitat|species|class|eunis|^name$/i.test(key) &&
+        /seagrass|posidonia|cymodocea|zostera/i.test(String(value)) &&
+        !/unknown|absence|no seagrass|potential|suitability/i.test(String(value))));
+    return recorded ? 'Deniz çayırı kaydı' : '';
+  }
+  return data.features.map(item => classifyBottom(item.properties || {})).find(Boolean) || '';
+}
+
+function renderBottom() {
+  $('bottom-panel').hidden = activeSpot.water === 'fresh';
+  $('bottom-status').textContent = bottom.text;
+}
+
+async function loadBottom() {
+  bottomRequest?.abort();
+  const controller = new AbortController();
+  bottomRequest = controller;
+  const spot = activeSpot;
+  bottom = { text: spot.water === 'fresh' ? '' : 'EMODnet dip verisi sorgulanıyor…' };
+  renderBottom();
+  if (spot.water === 'fresh') return;
+  $('bottom-refresh').disabled = true;
+  const timer = setTimeout(() => controller.abort(), 15000);
+  try {
+    const results = await Promise.allSettled(bottomSources.map(source => queryBottom(source, spot, controller.signal)));
+    if (bottomRequest !== controller) return;
+    const labels = results.flatMap(result => result.status === 'fulfilled' && result.value ? [result.value] : []);
+    const partial = results.some(result => result.status === 'rejected');
+    bottom = { label: labels.join(' + '), text: labels.length
+      ? labels.join(' · ') + ' · EMODnet' + (partial ? ' · Bazı katmanlar sorgulanamadı.' : '')
+      : partial ? 'Dip verisi doğrulanamadı. Kaynak katmanlarına şu an erişilemiyor.'
+        : 'Bu koordinatta dip sınıfı kaydı bulunamadı.' };
+    renderBottom();
+    renderForecast();
+  } finally {
+    clearTimeout(timer);
+    if (bottomRequest === controller) $('bottom-refresh').disabled = false;
+  }
+}
 let activeSpot = spots.find(spot => spot.id === read('mera:active', 'mudanya')) || spots[0];
 let mode = read('mera:mode', 'shore');
 $('mode').value = mode;
@@ -91,10 +194,6 @@ function refreshSpots() {
 function renderMap() {
   const { lat, lon } = activeSpot;
   $('map-link').href = 'https://www.openstreetmap.org/?mlat=' + lat + '&mlon=' + lon + '#map=13/' + lat + '/' + lon;
-  const bottom = bottomTypes[activeSpot.id] || '';
-  $('bottom-form').hidden = activeSpot.water === 'fresh';
-  $('bottom-type').value = bottom;
-  $('bottom-status').textContent = bottom ? 'Kişisel gözlem: ' + bottomLabels[bottom] : 'Bu mera için kayıtlı dip bilgisi yok.';
   if (selectedView !== 'spots') return;
   const box = [Math.max(-180, lon - .065), Math.max(-90, lat - .045), Math.min(180, lon + .065), Math.min(90, lat + .045)];
   const url = 'https://www.openstreetmap.org/export/embed.html?bbox=' + box.join('%2C') + '&layer=mapnik&marker=' + lat + '%2C' + lon;
@@ -459,8 +558,7 @@ function renderForecast() {
     description.append(el('h2', activeSpot.name + ' · ' + species.name),
       el('p', 'En iyi saat ' + top.item.time.slice(11, 16), 'time'),
       el('p', species.bait + ' · ' + species.rig));
-    const bottom = bottomLabels[bottomTypes[activeSpot.id]];
-    if (bottom) description.append(el('small', 'Dip · ' + bottom + ' · Kişisel gözlem'));
+    if (bottom.label) description.append(el('small', 'Dip · ' + bottom.label + ' · EMODnet'));
     summary.append(description, el('div', top.result.value + ' / 100', 'score'));
     const factors = el('details', '');
     factors.append(el('summary', 'Av puanı nasıl oluştu?'),
@@ -527,6 +625,7 @@ function changeSpot(spot) {
   write('mera:active', spot.id);
   refreshSpots();
   renderMap();
+  loadBottom();
   loadForecast();
 }
 function renderLog() {
@@ -617,20 +716,7 @@ $('spot-form').onsubmit = event => {
   $('gps-status').textContent = spot.name + ' kaydedildi.';
   changeSpot(spot);
 };
-$('bottom-form').onsubmit = event => {
-  event.preventDefault();
-  const type = $('bottom-type').value;
-  const next = { ...bottomTypes };
-  if (Object.hasOwn(bottomLabels, type)) next[activeSpot.id] = type;
-  else delete next[activeSpot.id];
-  if (!write('mera:bottom-types', next)) {
-    $('bottom-status').textContent = 'Dip bilgisi kaydedilemedi.';
-    return;
-  }
-  bottomTypes = next;
-  renderMap();
-  renderForecast();
-};
+$('bottom-refresh').onclick = loadBottom;
 $('gps').onclick = () => {
   if (!navigator.geolocation) {
     $('gps-status').textContent = 'Konum alınamıyor. Uygulamayı HTTPS üzerinden aç veya koordinatı elle gir.';
@@ -685,5 +771,6 @@ refreshSpots();
 renderMap();
 renderFish();
 renderLog();
+loadBottom();
 loadForecast();
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {});
