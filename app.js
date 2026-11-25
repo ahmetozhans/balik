@@ -592,12 +592,76 @@ async function loadHeatMap() {
     if (heatRequest === controller) button.disabled = false;
   }
 }
+function chartNode(tag, attrs, label) {
+  const node = document.createElementNS('http://www.w3.org/2000/svg', tag);
+  for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, value);
+  if (label !== undefined) node.textContent = label;
+  return node;
+}
+
+function hourChart(items, key, unit, name) {
+  const values = items.map(item => item[key]).filter(Number.isFinite);
+  if (!values.length) return el('p', 'Bu ölçüm için saatlik veri yok.', 'muted');
+  const width = 600;
+  const left = 53;
+  const right = 580;
+  const top = 15;
+  const bottom = 150;
+  const low = Math.min(...values);
+  const high = Math.max(...values);
+  const step = high === low ? Math.max(.1, Math.abs(low) * .05) : 0;
+  const min = low - step;
+  const max = high + step;
+  const x = index => items.length === 1 ? (left + right) / 2 : left + index / (items.length - 1) * (right - left);
+  const y = value => bottom - (value - min) / (max - min) * (bottom - top);
+  const svg = chartNode('svg', { viewBox: '0 0 ' + width + ' 178', class: 'metric-chart',
+    role: 'img', 'aria-label': name + ' saatlik grafiği' });
+  for (const value of [min, (min + max) / 2, max]) {
+    svg.append(chartNode('line', { x1: left, x2: right, y1: y(value), y2: y(value), class: 'gridline' }),
+      chartNode('text', { x: left - 7, y: y(value) + 4, 'text-anchor': 'end' }, format(value, '').trim()));
+  }
+  let path = '';
+  let previous = false;
+  const dots = [];
+  for (const [index, item] of items.entries()) {
+    const value = item[key];
+    if (!Number.isFinite(value)) { previous = false; continue; }
+    path += (previous ? ' L ' : ' M ') + x(index) + ' ' + y(value);
+    previous = true;
+    const dot = chartNode('circle', { cx: x(index), cy: y(value), r: 4, class: 'marker' });
+    dot.append(chartNode('title', {}, item.time.slice(11, 16) + ' · ' + format(value, unit)));
+    dots.push(dot);
+  }
+  svg.append(chartNode('path', { d: path, class: 'series' }), ...dots);
+  const ticks = [...new Set(Array.from({ length: Math.min(5, items.length) }, (_, index) =>
+    Math.round(index * (items.length - 1) / Math.max(1, Math.min(5, items.length) - 1))))];
+  for (const index of ticks) svg.append(chartNode('text', { x: x(index), y: 173, 'text-anchor': 'middle' }, items[index].time.slice(11, 16)));
+  return svg;
+}
+
+function barRows(entries, maximum) {
+  const list = el('div', '');
+  for (const entry of entries) {
+    const row = el('div', '', 'bar-row');
+    const track = el('span', '', 'bar-track');
+    track.setAttribute('aria-hidden', 'true');
+    if (Number.isFinite(entry.value)) {
+      const fill = el('span', '', 'bar-fill');
+      fill.style.width = 100 * Math.max(0, Math.min(1, entry.value / maximum)) + '%';
+      track.append(fill);
+    }
+    row.append(el('span', entry.label), track, el('strong', entry.display));
+    list.append(row);
+  }
+  return list;
+}
+
 function metricCard(items) {
   const card = el('article', '');
   const buttons = el('div', '', 'metrics');
   const chart = el('div', '', 'chart');
   const heading = el('h3', '');
-  card.append(el('h2', 'Deniz ve hava'), buttons, heading, chart);
+  card.append(el('h2', 'Saatlik koşullar'), buttons, heading, chart);
   const visibleMetrics = Object.entries(metrics).filter(([key]) =>
     mode !== 'fresh' || !['wave', 'water', 'current'].includes(key));
   if (!visibleMetrics.some(([key]) => key === selectedMetric)) selectedMetric = 'wind';
@@ -624,22 +688,11 @@ function metricCard(items) {
     for (const button of buttons.children) {
       button.setAttribute('aria-pressed', String(button.dataset.metric === selectedMetric));
     }
-    const values = items.map(item => item[selectedMetric]).filter(Number.isFinite);
-    const baseline = selectedMetric === 'pressure' && values.length ? Math.floor(Math.min(...values)) - 1 : Math.min(0, ...values);
-    const max = Math.max(1, ...values.map(value => value - baseline));
-    chart.replaceChildren();
-    for (const item of items) {
-      const value = item[selectedMetric];
-      const row = el('div', '', 'chart-row');
-      const bar = Number.isFinite(value) ? el('progress', '') : el('span', '');
-      if (Number.isFinite(value)) {
-        bar.max = max;
-        bar.value = value - baseline;
-        bar.setAttribute('aria-hidden', 'true');
-      }
-      row.append(el('span', item.time.slice(11, 16)), bar, el('span', format(value, unit)));
-      chart.append(row);
-    }
+    const data = el('details', '', 'chart-data');
+    const labels = el('div', '', 'chart-values');
+    for (const hour of items) labels.append(el('span', hour.time.slice(11, 16) + ' · ' + format(hour[selectedMetric], unit)));
+    data.append(el('summary', 'Saatlik değerler'), labels);
+    chart.replaceChildren(hourChart(items, selectedMetric, unit, name), data);
   }
   showMetric();
   return card;
@@ -758,9 +811,7 @@ function renderForecast() {
       item.append(el('small', label), el('strong', value));
       cards.append(item);
     }
-    const details = el('details', '');
-    details.append(el('summary', 'Saatlik hava ve deniz grafikleri'), metricCard(todaysHours));
-    today.append(el('h2', 'Saat ' + next.time.slice(11, 16) + ' tahmini', 'section-heading'), cards, details);
+    today.append(el('h2', 'Saat ' + next.time.slice(11, 16) + ' tahmini', 'section-heading'), cards, metricCard(todaysHours));
   }
 
   const guide = el('article', '');
@@ -777,6 +828,15 @@ function renderForecast() {
     if (!dates.has(date)) dates.set(date, []);
     dates.get(date).push(item);
   }
+  const dailyWind = [...dates].map(([date, items]) => {
+    const winds = items.map(hour => hour.wind).filter(Number.isFinite);
+    const value = winds.length ? Math.max(...winds) : null;
+    return { label: dayFormat.format(new Date(date + 'T12:00:00+03:00')), value, display: format(value, 'km/sa') };
+  });
+  const overview = el('article', '', 'wide');
+  overview.append(el('h2', 'Günlük en yüksek rüzgâr tahmini'),
+    barRows(dailyWind, Math.max(1, ...dailyWind.map(day => day.value ?? 0))));
+  plan.append(overview);
   for (const [date, items] of dates) {
     const pick = best(items);
     const card = el('article', '', 'plan-day');
@@ -800,7 +860,7 @@ function renderFish() {
   for (const item of Object.values(fish).filter(item => matchesMode(item) && (!selected || item.months.includes(selected)))) {
     const card = el('article', '');
     card.append(el('h2', item.name), el('p', 'Yem: ' + item.bait), el('p', 'Takım: ' + item.rig),
-      el('small', 'Puanlamada öne çıkan aylar: ' + item.months.map(month => months.format(new Date(Date.UTC(2026, month - 1, 15)))).join(', ')));
+      el('small', 'Rehberde öne çıkan aylar: ' + item.months.map(month => months.format(new Date(Date.UTC(2026, month - 1, 15)))).join(', ')));
     guide.append(card);
   }
 }
@@ -823,6 +883,12 @@ function renderLog() {
     const successful = records.filter(entry => Number(entry.count) > 0).length;
     const card = el('article', '');
     card.append(el('h2', 'Av özeti'), el('p', records.length + ' kayıt · ' + successful + ' sonuç veren kayıt · ' + total + ' balık'));
+    const counts = new Map();
+    for (const entry of records) counts.set(entry.fish, (counts.get(entry.fish) || 0) + Number(entry.count));
+    const series = [...counts].sort((a, b) => b[1] - a[1]).map(([key, value]) => ({
+      label: fish[key]?.name || key, value, display: value + ' adet'
+    }));
+    card.append(barRows(series, Math.max(1, ...series.map(entry => entry.value))));
     stats.append(card);
   }
   if (!records.length) list.append(el('p', 'Henüz av kaydın yok.', 'muted'));
