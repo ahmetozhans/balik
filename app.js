@@ -1,6 +1,6 @@
 const $ = id => document.getElementById(id);
-const forecastHours = 'wind_speed_10m,pressure_msl,temperature_2m';
-const marineHours = 'wave_height,sea_surface_temperature,ocean_current_velocity';
+const forecastHours = 'wind_speed_10m,pressure_msl,temperature_2m,precipitation_probability,cloud_cover,wind_direction_10m';
+const marineHours = 'wave_height,sea_surface_temperature,ocean_current_velocity,wave_period,ocean_current_direction';
 const starterSpots = [
   { id: 'mudanya', name: 'Mudanya', lat: 40.379, lon: 28.884 },
   { id: 'gemlik', name: 'Gemlik', lat: 40.431, lon: 29.150 },
@@ -74,6 +74,7 @@ let selectedView = 'today';
 let selectedMetric = 'wind';
 let comparisonRequest;
 const metrics = {
+  air: ['Hava sıcaklığı', '°C'], rain: ['Yağış ihtimali', '%'], clouds: ['Bulutluluk', '%'],
   wind: ['Rüzgâr', 'km/sa'], wave: ['Dalga', 'm'], pressure: ['Basınç', 'hPa'],
   water: ['Su sıcaklığı', '°C'], current: ['Akıntı', 'm/sn']
 };
@@ -116,6 +117,9 @@ function combine(weather, marine) {
     const day = days.get(time.slice(0, 10));
     return {
       time, wind: weather.hourly.wind_speed_10m[index], pressure: weather.hourly.pressure_msl[index],
+      air: weather.hourly.temperature_2m?.[index], rain: weather.hourly.precipitation_probability?.[index],
+      clouds: weather.hourly.cloud_cover?.[index], windDirection: weather.hourly.wind_direction_10m?.[index],
+      wavePeriod: marine?.hourly?.wave_period?.[marineIndex], currentDirection: marine?.hourly?.ocean_current_direction?.[marineIndex],
       wave: marine?.hourly?.wave_height?.[marineIndex], water: marine?.hourly?.sea_surface_temperature?.[marineIndex],
       current: marine?.hourly?.ocean_current_velocity?.[marineIndex],
       sunrise: weather.daily.sunrise[day], sunset: weather.daily.sunset[day]
@@ -319,10 +323,19 @@ function metricCard(items) {
   const chart = el('div', '', 'chart');
   const heading = el('h3', '');
   card.append(el('h2', 'Deniz ve hava'), buttons, heading, chart);
-  for (const [key, [name, unit]] of Object.entries(metrics)) {
+  const visibleMetrics = Object.entries(metrics).filter(([key]) =>
+    mode !== 'fresh' || !['wave', 'water', 'current'].includes(key));
+  if (!visibleMetrics.some(([key]) => key === selectedMetric)) selectedMetric = 'wind';
+  const compass = degrees => Number.isFinite(degrees)
+    ? ['K', 'KD', 'D', 'GD', 'G', 'GB', 'B', 'KB'][Math.round(degrees / 45) % 8] : '';
+  const current = items[0];
+  const hints = { wave: Number.isFinite(current.wavePeriod) ? format(current.wavePeriod, 'sn') : '',
+    wind: compass(current.windDirection), current: compass(current.currentDirection) };
+  for (const [key, [name, unit]] of visibleMetrics) {
     const button = el('button', '');
     button.dataset.metric = key;
-    button.append(el('small', name), el('strong', format(items[0][key], unit)));
+    button.append(el('small', name), el('strong', format(current[key], unit)));
+    if (hints[key]) button.append(el('small', hints[key]));
     button.onclick = () => {
       selectedMetric = key;
       showMetric();
@@ -459,7 +472,7 @@ function renderForecast() {
       };
       ranking.append(button);
     }
-    today.append(ranking, metricCard(todaysHours));
+    today.append(metricCard(todaysHours), ranking);
     const table = el('table', '');
     table.createTHead().insertRow().append(...['Saat', 'Puan', 'Rüzgâr', 'Dalga', 'Basınç', 'Su', 'Akıntı'].map(title => el('th', title)));
     const body = table.createTBody();
