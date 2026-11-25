@@ -1,4 +1,4 @@
-const cacheName = 'mera-plan-v1';
+const cacheName = 'mera-plan-v2';
 const shell = ['./', './index.html', './app.js', './planner.mjs', './style.css', './icon.svg', './app.webmanifest'];
 
 self.addEventListener('install', event => {

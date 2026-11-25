@@ -1,4 +1,4 @@
-import { fish, spots, localDay, localTime, combineForecast, pickWindow } from './planner.mjs';
+import { fish, spots, localDay, localTime, combineForecast, pickWindow, pickWeatherWindow, hasFutureHour, inGuideSeason } from './planner.mjs';
 
 const $ = id => document.getElementById(id);
 const number = new Intl.NumberFormat('tr-TR', { maximumFractionDigits: 1 });
@@ -124,23 +124,69 @@ function recommendation(spot, window) {
   return card;
 }
 
+function plansFor(eligible, date, now, weatherOnly = false) {
+  return eligible.flatMap(({ spot, hours }) => {
+    const window = weatherOnly ? pickWeatherWindow(hours, date, now) : pickWindow(spot, hours, date, now);
+    return window ? [{ spot, window }] : [];
+  }).sort((a, b) => a.window.cost - b.window.cost || Number(Boolean(b.spot.localRecord)) - Number(Boolean(a.spot.localRecord)));
+}
+
+function renderEmptyPlan(cards, eligible, date, offset, target, now) {
+  const card = element('article', undefined, 'card empty');
+  let reason = 'Sezon, ışık ve model verisi birlikte uygun bir tür önerisi vermedi.';
+  if (!eligible.length) reason = 'Seçtiğin türün merası için tahmin alınamadı.';
+  else if (!eligible.some(({ hours }) => hasFutureHour(hours, date, now))) {
+    reason = offset === 0 ? 'Bugünün son tahmin saati geçti.' : 'Bu gün için henüz saatlik tahmin yok.';
+  } else if (target && eligible.every(({ spot }) => !inGuideSeason(spot, date))) {
+    reason = fish[target].name + ' için bu tarih uygulamanın rehber sezonu dışında.';
+  }
+  card.append(element('h3', 'Bu gün için tür önerisi yok'), element('p', reason, 'muted'));
+
+  const dates = offset === 0 ? [date, localDay(1, now)] : [date];
+  for (const candidateDate of dates) {
+    const comparison = plansFor(eligible, candidateDate, now)[0];
+    const alternative = comparison || plansFor(eligible, candidateDate, now, true)[0];
+    if (!alternative) continue;
+    const { spot, window } = alternative;
+    const label = candidateDate === date && offset === 0 ? 'Bugün' : 'Yarın';
+    const preview = element('div', undefined, 'empty-preview');
+    const title = comparison ? label + ' · ' + fish[spot.fish].name : label + ' · Yalnızca hava ve deniz';
+    preview.append(element('strong', title),
+      element('p', spot.name + ' · ' + window.start.slice(11, 16) + '–' + clock.format(window.end)),
+      element('small', 'Rüzgâr ' + number.format(window.wind) + ' km/sa · Dalga ' + number.format(window.wave) + ' m'));
+    card.append(preview);
+    break;
+  }
+
+  if (offset === 0) {
+    const next = element('button', 'Yarının planına geç', 'primary');
+    next.type = 'button';
+    next.onclick = () => { $('day').value = '1'; renderPlan(); };
+    card.append(next);
+  }
+  if (target) {
+    const all = element('button', 'Tüm türleri göster', 'quiet');
+    all.type = 'button';
+    all.onclick = () => { $('target').value = ''; renderPlan(); };
+    card.append(all);
+  }
+  cards.append(card);
+}
+
 function renderPlan(now = Date.now()) {
   lastRenderMinute = Math.floor(now / 60000);
   const target = $('target').value;
-  const today = localDay(Number($('day').value), now);
+  const offset = Number($('day').value);
+  const date = localDay(offset, now);
   const cards = $('recommendations');
   cards.replaceChildren();
   if (!forecasts.length) return;
   const eligible = forecasts.filter(({ spot }) => !target || target === spot.fish);
   $('status').textContent = 'Open-Meteo hava ve deniz tahmini · ' + clock.format(acquiredAt) +
     ' · ' + forecasts.length + '/' + spots.length + ' mera';
-  const plans = eligible.flatMap(({ spot, hours }) => {
-    const window = pickWindow(spot, hours, today, now);
-    return window ? [{ spot, window }] : [];
-  }).sort((a, b) => a.window.cost - b.window.cost || Number(Boolean(b.spot.localRecord)) - Number(Boolean(a.spot.localRecord)));
+  const plans = plansFor(eligible, date, now);
   if (!plans.length) {
-    cards.append(element('div', target && !eligible.length ? 'Bu türün merası için tahmin alınamadı.'
-      : 'Seçilen gün ve tür için uygun bir deneme saati bulunamadı. Günü veya türü değiştirebilirsin.', 'card empty'));
+    renderEmptyPlan(cards, eligible, date, offset, target, now);
     return;
   }
   for (const plan of plans.slice(0, 3)) cards.append(recommendation(plan.spot, plan.window));

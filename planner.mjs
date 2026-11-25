@@ -65,11 +65,26 @@ function lightMatches(hour, preferred) {
   return preferred === 'edges' && Math.min(now - rise, set - now) <= 90 * 60000;
 }
 
+export function hasFutureHour(hours, date, now = Date.now()) {
+  return hours.some(hour => hour.time.slice(0, 10) === date && stamp(hour.time) >= now);
+}
+
+export function inGuideSeason(spot, date) {
+  return !spot.months || spot.months.includes(Number(date.slice(5, 7)));
+}
+
 export function pickWindow(spot, hours, date, now = Date.now()) {
-  const month = Number(date.slice(5, 7));
-  if (spot.months && !spot.months.includes(month)) return null;
+  if (!inGuideSeason(spot, date)) return null;
+  return chooseWindow(hours, date, now, hour => lightMatches(hour, spot.hours));
+}
+
+export function pickWeatherWindow(hours, date, now = Date.now()) {
+  return chooseWindow(hours, date, now, () => true);
+}
+
+function chooseWindow(hours, date, now, eligible) {
   const candidates = hours.filter(hour => hour.time.slice(0, 10) === date && stamp(hour.time) >= now &&
-    Number.isFinite(hour.wind) && Number.isFinite(hour.wave) && lightMatches(hour, spot.hours));
+    Number.isFinite(hour.wind) && Number.isFinite(hour.wave) && eligible(hour));
   const windows = candidates.map((hour, index) => {
     const next = candidates[index + 1];
     const selected = next && stamp(next.time) - stamp(hour.time) === 3600000 ? [hour, next] : [hour];
