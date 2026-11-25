@@ -17,3 +17,5 @@ Bursa tür listesi için [Mudanya](https://www.baliksende.com/nokta/bursa/mudany
 Deniz modunda dip verisi, seçili meranın koordinatıyla EMODnet Geology ve Seabed Habitats WMS servislerinden sorgulanır. Sonuçlar katman kapsamına ve çözünürlüğüne bağlıdır.
 
 Tür önerisi ayrı bir rehberdir. Uygulama belgelenen habitatı, sezon rehberini ve türün av saatlerini karşılaştırır. Ardından eşleşen saatler arasında mevcut model verilerine göre daha sakin saati gösterir. Denizde rüzgâr veya dalga verisi eksikse saat önerilmez.
+
+Meralar ekranında uydu görünümü Esri World Imagery ile açılır. Atış çizgisi iki seçili koordinatın arasındaki yaklaşık düz mesafeyi ve gerçek kuzeye göre yönü gösterir. Uydu görüntüsü zeminin görünür olduğu durumlarda yorum için kullanılabilir. Otomatik dip sınıflandırması uygulanmaz.

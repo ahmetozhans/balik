@@ -94,3 +94,7 @@ a{color:var(--sea)}
 #cast-status{margin-top:8px}
 #cast-status span,#cast-status strong{display:block;margin-bottom:4px}
 .leaflet-popup-content .dip-popup>small{display:block}
+
+.map-basemaps{display:flex;gap:6px;margin:8px 0}
+.map-basemaps button[aria-pressed=true]{background:#d8ece8;color:#005c54;border-color:#a6ccc4}
+.cast-length span{display:inline-block;white-space:nowrap;border:1px solid #f59f42;background:#172b38;color:white;border-radius:7px;padding:4px 6px;font-weight:700}

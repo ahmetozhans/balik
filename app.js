@@ -156,6 +156,9 @@ function bottomResult(results) {
 }
 
 let meraMap;
+let streetTiles;
+let satelliteTiles;
+let baseMode = 'streets';
 let meraPins;
 let conditionPins;
 let dipLayers;
@@ -178,6 +181,27 @@ function resetCast() {
   $('cast-status').textContent = 'Kıyıdaki yerini ve oltanın düştüğü su noktasını seç.';
 }
 
+function setMapBase(next) {
+  if (!meraMap || baseMode === next) return;
+  const satellite = next === 'satellite';
+  meraMap.removeLayer(satellite ? streetTiles : satelliteTiles);
+  (satellite ? satelliteTiles : streetTiles).addTo(meraMap);
+  baseMode = next;
+  $('map-streets').setAttribute('aria-pressed', String(!satellite));
+  $('map-satellite').setAttribute('aria-pressed', String(satellite));
+}
+
+function castBearing(start, end) {
+  const radians = Math.PI / 180;
+  const a = start.lat * radians;
+  const b = end.lat * radians;
+  const delta = (end.lng - start.lng) * radians;
+  const east = Math.sin(delta) * Math.cos(b);
+  const north = Math.cos(a) * Math.sin(b) - Math.sin(a) * Math.cos(b) * Math.cos(delta);
+  const bearing = (Math.atan2(east, north) / radians + 360) % 360;
+  return { degrees: Math.round(bearing) % 360, direction: ['K', 'KD', 'D', 'GD', 'G', 'GB', 'B', 'KB'][Math.round(bearing / 45) % 8] };
+}
+
 function startCast() {
   if (!meraMap || mode !== 'shore') return;
   resetCast();
@@ -186,6 +210,7 @@ function startCast() {
   $('cast-reset').hidden = false;
   $('cast-status').textContent = 'Haritada kıyıda durduğun yere dokun.';
   meraMap.closePopup();
+  setMapBase('satellite');
   if (meraMap.getZoom() < 18) meraMap.setZoom(18);
 }
 
@@ -205,17 +230,22 @@ async function pickCastPoint(point) {
     return;
   }
   castSelecting = false;
-  L.polyline([castStart, point], { color: '#00766d', weight: 3, interactive: false }).addTo(castLayer);
+  const direction = castBearing(castStart, point);
+  const castLabel = length + ' · ' + direction.direction + ' ' + direction.degrees + '°';
+  L.polyline([castStart, point], { color: '#f59f42', weight: 4, interactive: false }).addTo(castLayer);
+  L.marker(point, { interactive: false, keyboard: false, icon: L.divIcon({
+    className: 'cast-length', html: el('span', castLabel), iconSize: [108, 28], iconAnchor: [-8, 33]
+  }) }).addTo(castLayer);
   L.circleMarker(point, { radius: 6, color: '#fff', fillColor: '#b65b30', fillOpacity: 1, interactive: false }).addTo(castLayer);
   const request = new AbortController();
   castRequest = request;
   const timer = setTimeout(() => request.abort(), 12000);
-  status.textContent = length + ' · Atış noktasında dip verisi sorgulanıyor…';
+  status.textContent = castLabel + ' · Atış noktasında dip verisi sorgulanıyor…';
   try {
     const records = await Promise.allSettled(bottomSources.map(source => queryBottom(source, { lat: point.lat, lon: point.lng }, request.signal)));
     if (castRequest !== request) return;
     const result = bottomResult(records);
-    status.replaceChildren(el('strong', length + ' · Atış alanının dip yapısı bilinmiyor.'));
+    status.replaceChildren(el('strong', castLabel + ' · Atış alanının dip yapısı bilinmiyor.'));
     if (result.label) {
       status.append(el('span', 'EMODnet kaydı: ' + result.label + '. Bu katmanın ayrıntısı 25 m düzeyinde doğrulama için yeterli değil.'));
     } else {
@@ -398,9 +428,17 @@ function renderMap() {
   }
   if (!meraMap) {
     meraMap = L.map('map', { scrollWheelZoom: false }).setView([lat, lon], 13);
-    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    streetTiles = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
     }).addTo(meraMap);
+    satelliteTiles = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+      maxZoom: 19, attribution: 'Görüntü: Esri, Maxar, Earthstar Geographics ve GIS User Community'
+    });
+    satelliteTiles.on('tileerror', () => {
+      if (baseMode === 'satellite') $('map-status').textContent = 'Bazı uydu görüntüleri yüklenemedi. Sokak görünümüne geçebilirsin.';
+    });
+    $('map-streets').onclick = () => setMapBase('streets');
+    $('map-satellite').onclick = () => setMapBase('satellite');
     dipLayers = L.layerGroup().addTo(meraMap);
     meraPins = L.layerGroup().addTo(meraMap);
     conditionPins = L.layerGroup().addTo(meraMap);
