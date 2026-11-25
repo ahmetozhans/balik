@@ -46,12 +46,20 @@ let activeSpot = spots.find(spot => spot.id === read('mera:active', 'mudanya')) 
 let hours = [];
 let request;
 let selectedView = 'today';
+let selectedMetric = 'wind';
+let comparisonRequest;
+const metrics = {
+  wind: ['Rüzgâr', 'km/sa'], wave: ['Dalga', 'm'], pressure: ['Basınç', 'hPa'],
+  water: ['Su sıcaklığı', '°C'], current: ['Akıntı', 'm/sn']
+};
 const speciesOptions = Object.entries(fish).map(([id, item]) => [id, item.name]);
 fillSelect($('species'), speciesOptions, read('mera:species', 'levrek'));
 fillSelect($('log-fish'), speciesOptions);
 $('log-form').elements.date.value = localTime();
 function refreshSpots() {
   fillSelect($('spot'), spots.map(spot => [spot.id, spot.name]), activeSpot.id);
+  fillSelect($('compare-spot'), spots.filter(spot => spot.id !== activeSpot.id).map(spot => [spot.id, spot.name]), $('compare-spot').value);
+  clearComparison();
 }
 function renderMap() {
   const { lat, lon } = activeSpot;
@@ -147,6 +155,106 @@ function best(items, species) {
 function format(value, unit) {
   return Number.isFinite(value) ? new Intl.NumberFormat('tr-TR', { maximumFractionDigits: 1 }).format(value) + ' ' + unit : '—';
 }
+function metricCard(items) {
+  const card = el('article', '');
+  const buttons = el('div', '', 'metrics');
+  const chart = el('div', '', 'chart');
+  const heading = el('h3', '');
+  card.append(el('h2', 'Deniz ve hava'), buttons, heading, chart);
+  for (const [key, [name, unit]] of Object.entries(metrics)) {
+    const button = el('button', '');
+    button.dataset.metric = key;
+    button.append(el('small', name), el('strong', format(items[0][key], unit)));
+    button.onclick = () => {
+      selectedMetric = key;
+      showMetric();
+    };
+    buttons.append(button);
+  }
+  function showMetric() {
+    const [name, unit] = metrics[selectedMetric];
+    heading.textContent = name + ' · Saatlik';
+    heading.style.marginTop = '14px';
+    for (const button of buttons.children) {
+      button.setAttribute('aria-pressed', String(button.dataset.metric === selectedMetric));
+    }
+    const values = items.map(item => item[selectedMetric]).filter(Number.isFinite);
+    const baseline = selectedMetric === 'pressure' && values.length ? Math.floor(Math.min(...values)) - 1 : Math.min(0, ...values);
+    const max = Math.max(1, ...values.map(value => value - baseline));
+    chart.replaceChildren();
+    for (const item of items) {
+      const value = item[selectedMetric];
+      const row = el('div', '', 'chart-row');
+      const bar = Number.isFinite(value) ? el('progress', '') : el('span', '');
+      if (Number.isFinite(value)) {
+        bar.max = max;
+        bar.value = value - baseline;
+        bar.setAttribute('aria-hidden', 'true');
+      }
+      row.append(el('span', item.time.slice(11, 16)), bar, el('span', format(value, unit)));
+      chart.append(row);
+    }
+  }
+  showMetric();
+  return card;
+}
+function clearComparison() {
+  comparisonRequest?.abort();
+  comparisonRequest = undefined;
+  $('compare-button').disabled = false;
+  $('compare-result').replaceChildren();
+}
+async function compareSpots() {
+  clearComparison();
+  const other = spots.find(spot => spot.id === $('compare-spot').value);
+  if (!other) return;
+  const selected = activeSpot;
+  const species = fish[$('species').value];
+  const output = $('compare-result');
+  const controller = new AbortController();
+  comparisonRequest = controller;
+  const timer = setTimeout(() => controller.abort(), 12000);
+  $('compare-button').disabled = true;
+  output.textContent = 'Tahminler karşılaştırılıyor…';
+  try {
+    const forecasts = await Promise.all([selected, other].map(async spot => {
+      const [weatherUrl, marineUrl] = urls(spot);
+      const [weather, marine] = await Promise.all([
+        getData(weatherUrl, controller.signal),
+        getData(marineUrl, controller.signal).catch(() => null)
+      ]);
+      return combine(weather, marine);
+    }));
+    if (comparisonRequest !== controller) return;
+    if (controller.signal.aborted) throw new Error('Tahmin zaman aşımına uğradı');
+    const start = localTime().slice(0, 13);
+    const secondByTime = new Map(forecasts[1].map(hour => [hour.time, hour]));
+    const shared = forecasts[0].filter(hour => hour.time.slice(0, 13) >= start && secondByTime.has(hour.time));
+    if (!shared.length) {
+      output.textContent = 'Karşılaştırılabilecek ortak tahmin saati bulunamadı.';
+      return;
+    }
+    const pairs = shared.map(hour => [hour, secondByTime.get(hour.time)]);
+    const fields = ['wave', 'water'];
+    const comparable = pairs.map(pair => pair.map(hour => {
+      const copy = { ...hour };
+      for (const key of fields) {
+        if (!pair.every(item => Number.isFinite(item[key]))) copy[key] = undefined;
+      }
+      return copy;
+    }));
+    output.replaceChildren(el('p', species.name + ' · Ortak saatler ve mevcut veriler'));
+    for (const [index, spot] of [selected, other].entries()) {
+      const peak = best(comparable.map(pair => pair[index]), species);
+      output.append(el('p', spot.name + ' · ' + peak.result.value + ' / 100 · ' + dateFormat.format(new Date(peak.item.time + '+03:00'))));
+    }
+  } catch {
+    if (comparisonRequest === controller) output.textContent = 'Karşılaştırma yüklenemedi. Tekrar deneyebilirsin.';
+  } finally {
+    clearTimeout(timer);
+    if (comparisonRequest === controller) $('compare-button').disabled = false;
+  }
+}
 function renderForecast() {
   const today = $('today-content');
   const plan = $('plan-content');
@@ -166,22 +274,32 @@ function renderForecast() {
   if (!todaysHours.length) today.append(el('p', 'Bugün için kalan saat bulunmuyor. 7 Gün ekranını aç.'));
   const top = best(todaysHours, species);
   if (top) {
-    const card = el('article', '');
-    card.append(
-      el('h2', activeSpot.name + ' · ' + species.name),
-      el('div', top.result.value + ' / 100', 'score'),
-      el('p', 'En iyi görünen saat: ' + top.item.time.slice(11, 16)),
-      el('p', species.bait + ' · ' + species.rig),
-      el('small', 'Av puanı deneysel bir göstergedir. Etkenler: ' + top.result.factors.map(([value, , name]) => name + ' ' + Math.round(value)).join(' · '))
-    );
+    const card = el('article', '', 'hero');
+    const summary = el('div', '', 'spread');
+    const description = el('div', '');
+    description.append(el('h2', activeSpot.name + ' · ' + species.name),
+      el('p', 'En iyi saat ' + top.item.time.slice(11, 16), 'time'),
+      el('p', species.bait + ' · ' + species.rig));
+    summary.append(description, el('div', top.result.value + ' / 100', 'score'));
+    const factors = el('details', '');
+    factors.append(el('summary', 'Av puanı nasıl oluştu?'),
+      el('p', 'Deneysel puan · ' + top.result.factors.map(([value, , name]) => name + ' ' + Math.round(value)).join(' · ')));
+    card.append(summary, factors);
     today.append(card);
     const ranking = el('article', '');
     ranking.append(el('h2', 'Bugün hangi balık?'));
-    const ranked = Object.values(fish).map(item => [item, best(todaysHours, item)]).sort((a, b) => b[1].result.value - a[1].result.value);
-    for (const [item, peak] of ranked) {
-      ranking.append(el('p', item.name + ' · ' + peak.result.value + ' puan · ' + peak.item.time.slice(11, 16)));
+    const ranked = Object.entries(fish).map(([id, item]) => [id, item, best(todaysHours, item)])
+      .sort((a, b) => b[2].result.value - a[2].result.value);
+    for (const [id, item, peak] of ranked) {
+      const button = el('button', '', 'rank-row');
+      button.append(el('span', item.name), el('strong', peak.result.value + ' puan'), el('small', peak.item.time.slice(11, 16)));
+      button.onclick = () => {
+        $('species').value = id;
+        $('species').onchange();
+      };
+      ranking.append(button);
     }
-    today.append(ranking);
+    today.append(ranking, metricCard(todaysHours));
     const table = el('table', '');
     table.createTHead().insertRow().append(...['Saat', 'Puan', 'Rüzgâr', 'Dalga', 'Basınç', 'Su', 'Akıntı'].map(title => el('th', title)));
     const body = table.createTBody();
@@ -211,7 +329,9 @@ function renderForecast() {
 function renderFish() {
   const guide = $('fish-content');
   const months = new Intl.DateTimeFormat('tr-TR', { timeZone: 'UTC', month: 'long' });
-  for (const item of Object.values(fish)) {
+  guide.replaceChildren();
+  const selected = Number($('season').value);
+  for (const item of Object.values(fish).filter(item => !selected || item.months.includes(selected))) {
     const card = el('article', '');
     card.append(el('h2', item.name), el('p', 'Yem: ' + item.bait), el('p', 'Takım: ' + item.rig),
       el('small', 'Puanlamada öne çıkan aylar: ' + item.months.map(month => months.format(new Date(Date.UTC(2026, month - 1, 15)))).join(', ')));
@@ -228,6 +348,15 @@ function changeSpot(spot) {
 function renderLog() {
   const list = $('log-content');
   list.replaceChildren();
+  const stats = $('log-stats');
+  stats.replaceChildren();
+  if (records.length) {
+    const total = records.reduce((sum, entry) => sum + Number(entry.count), 0);
+    const successful = records.filter(entry => Number(entry.count) > 0).length;
+    const card = el('article', '');
+    card.append(el('h2', 'Av özeti'), el('p', records.length + ' kayıt · ' + successful + ' sonuç veren kayıt · ' + total + ' balık'));
+    stats.append(card);
+  }
   if (!records.length) list.append(el('p', 'Henüz av kaydın yok.', 'muted'));
   for (const entry of records) {
     const card = el('article', '');
@@ -317,7 +446,15 @@ $('gps').onclick = () => {
   }, () => { $('gps-status').textContent = 'Konum alınamadı. Konum iznini ve bağlantını kontrol et.'; }, { timeout: 10000 });
 };
 $('spot').onchange = () => changeSpot(spots.find(spot => spot.id === $('spot').value));
+$('compare-button').onclick = compareSpots;
+$('compare-spot').onchange = clearComparison;
+const calendar = new Intl.DateTimeFormat('tr-TR', { month: 'long', timeZone: 'UTC' });
+for (let month = 0; month < 12; month++) {
+  $('season').add(new Option(calendar.format(new Date(Date.UTC(2026, month, 15))), String(month + 1)));
+}
+$('season').onchange = renderFish;
 $('species').onchange = () => {
+  clearComparison();
   write('mera:species', $('species').value);
   renderForecast();
 };
