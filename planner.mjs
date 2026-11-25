@@ -2,32 +2,61 @@ export const fish = {
   mirmir: { name: 'Mırmır', bait: 'Kırmızı kurt veya kum kurdu', rig: 'Yemli dip takımı' },
   istavrit: { name: 'İstavrit', bait: 'Tüylü çapari', rig: 'İstavrit çaparisi' },
   levrek: { name: 'Levrek', bait: 'Küçük silikon veya karides', rig: 'Hafif spin veya yemli takım' },
-  mezgit: { name: 'Mezgit' }, kefal: { name: 'Kefal' }, izmarit: { name: 'İzmarit' },
-  isparoz: { name: 'İsparoz' }, gumus: { name: 'Gümüş balığı' }, zargana: { name: 'Zargana' },
-  lufer: { name: 'Lüfer' }, palamut: { name: 'Palamut' }, sazan: { name: 'Sazan' },
-  turna: { name: 'Turna' }, golGumus: { name: 'Göl gümüşü' }, tatliLevrek: { name: 'Tatlı su levreği' }
+  mezgit: { name: 'Mezgit' }, kefal: { name: 'Kefal', bait: 'Ekmek içi veya hamur', rig: 'Şamandıralı takım' }, izmarit: { name: 'İzmarit', bait: 'Kum kurdu veya ince çapari', rig: 'Kısa köstekli dip takımı' },
+  isparoz: { name: 'İsparoz', bait: 'Kum kurdu', rig: 'İnce dip takımı' }, gumus: { name: 'Gümüş balığı', bait: 'Mikro çapari', rig: 'İnce şamandıralı takım' }, zargana: { name: 'Zargana' },
+  lufer: { name: 'Lüfer (çinekop, sarıkanat)', bait: 'İnce kaşık veya minnow', rig: 'Spin takımı' },
+  palamut: { name: 'Palamut', bait: 'Palamut kaşığı veya metal jig', rig: 'Kıyıdan spin' },
+  kupes: { name: 'Kupes', bait: 'Karides parçası', rig: 'Hafif yemli takım' }, kolyoz: { name: 'Kolyoz', bait: 'İstavrit tipi çapari', rig: 'Çapari' }, tekir: { name: 'Tekir', bait: 'Kum kurdu', rig: 'Yemli dip takımı' },
+  karagoz: { name: 'Karagöz' }, sargoz: { name: 'Sargoz' }, iskorpit: { name: 'İskorpit' },
+  dil: { name: 'Dil balığı' }, sarpa: { name: 'Sarpa' }, cipura: { name: 'Çipura' },
+  melanurya: { name: 'Melanurya' }, sardalya: { name: 'Sardalya' }, barbun: { name: 'Barbun' },
+  uskumru: { name: 'Uskumru' }, eskina: { name: 'Eşkina' },
+  sazan: { name: 'Sazan', inland: true },
+  turna: { name: 'Turna', inland: true }, golGumus: { name: 'Göl gümüşü', inland: true }, tatliLevrek: { name: 'Tatlı su levreği', inland: true }
 };
+
+const mudanyaSource = 'https://www.baliksende.com/nokta/bursa/mudanya/mudanya';
+const gemlikSource = 'https://www.baliksende.com/nokta/bursa/gemlik/gemlik';
 
 export const spots = [
   {
-    name: 'Gemsaz', district: 'Gemlik', lat: 40.41696, lon: 29.10061, fish: 'mirmir',
-    evidence: 'Gemsaz kıyısında 2010 tarihli mırmır avı anlatımı var.',
-    source: 'https://oltaatlasi.com/meralar/bursa-gemlik-gemsaz-acik-halk-plaji/',
-    hours: 'night', months: [6, 7, 8, 9], localRecord: true
+    name: 'Gemsaz', district: 'Gemlik', lat: 40.41696, lon: 29.10061,
+    targets: [{ fish: 'mirmir', evidence: 'Gemsaz kıyısında 2010 tarihli mırmır avı anlatımı var.',
+      source: 'https://oltaatlasi.com/meralar/bursa-gemlik-gemsaz-acik-halk-plaji/',
+      hours: 'night', months: [6, 7, 8, 9], localRecord: true }]
   },
   {
-    name: 'Mudanya Sahili', district: 'Mudanya', lat: 40.376, lon: 28.882, fish: 'istavrit',
-    evidence: 'Mudanya kıyı rehberi istavrit için sabah erken ve geceyi öne çıkarıyor.',
-    source: 'https://www.baliksende.com/nokta/bursa/mudanya/mudanya',
-    hours: 'edges'
+    name: 'Mudanya Sahili', district: 'Mudanya', lat: 40.376, lon: 28.882,
+    targets: [
+      ['istavrit', 'edges'], ['gumus', 'day'], ['izmarit', 'twilight'], ['lufer', 'evening'],
+      ['isparoz', 'twilight'], ['kupes', 'day'], ['kolyoz', 'twilight'], ['kefal', 'day'], ['tekir', 'day']
+    ].map(([id, hours]) => ({ fish: id, hours, source: mudanyaSource,
+      evidence: 'Mudanya kıyı rehberinde bu tür geçiyor. Saat önerisi rehber ve hava-deniz modeline dayanıyor.' }))
   },
   {
-    name: 'Yeniköy kıyısı', district: 'Karacabey', lat: 40.396111, lon: 28.381666, fish: 'levrek',
-    evidence: 'Karacabey kıyı rehberi levreği olası hedef olarak gösteriyor. Yeniköy’e özel av kaydı yok.',
-    source: 'https://www.balikav.com/mera/karacabey-sahili',
-    hours: 'night'
+    name: 'Gemlik Sahili', district: 'Gemlik', lat: 40.4306, lon: 29.1533,
+    targets: [{ fish: 'palamut', hours: 'twilight', source: gemlikSource,
+      evidence: 'Bölge rehberi Gemlik çevresini palamut göç güzergâhına yakın gösteriyor. Bu noktaya ait av kaydı yok.' }]
+  },
+  {
+    name: 'Yeniköy kıyısı', district: 'Karacabey', lat: 40.396111, lon: 28.381666,
+    targets: [{ fish: 'levrek', hours: 'night', source: 'https://www.balikav.com/mera/karacabey-sahili',
+      evidence: 'Karacabey kıyı rehberi levreği olası hedef olarak gösteriyor. Yeniköy’e özel av kaydı yok.' }]
   }
 ];
+
+export function supportsTarget(id) {
+  return spots.some(spot => spot.targets.some(target => target.fish === id));
+}
+
+export function forecastTargets(forecasts, id) {
+  return forecasts.flatMap(({ spot, hours }) =>
+    spot.targets.filter(target => !id || id === target.fish).map(target => ({ spot: { ...spot, ...target }, hours })));
+}
+
+export function mapsUrl(spot) {
+  return 'https://www.google.com/maps/search/?' + new URLSearchParams({ api: '1', query: spot.lat + ',' + spot.lon });
+}
 
 const localClock = new Intl.DateTimeFormat('sv-SE', {
   timeZone: 'Europe/Istanbul', year: 'numeric', month: '2-digit', day: '2-digit',
@@ -61,8 +90,12 @@ function lightMatches(hour, preferred) {
   const rise = stamp(hour.sunrise);
   const set = stamp(hour.sunset);
   if (![now, rise, set].every(Number.isFinite)) return false;
-  if (now < rise || now >= set) return true;
-  return preferred === 'edges' && Math.min(now - rise, set - now) <= 90 * 60000;
+  const atNight = now < rise || now >= set;
+  const twilight = Math.min(Math.abs(now - rise), Math.abs(now - set)) <= 90 * 60000;
+  if (preferred === 'day') return !atNight;
+  if (preferred === 'twilight') return twilight;
+  if (preferred === 'evening') return Math.abs(now - set) <= 90 * 60000;
+  return atNight || (preferred === 'edges' && twilight);
 }
 
 export function hasFutureHour(hours, date, now = Date.now()) {

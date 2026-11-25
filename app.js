@@ -1,4 +1,4 @@
-import { fish, spots, localDay, localTime, combineForecast, pickWindow, pickWeatherWindow, hasFutureHour, inGuideSeason } from './planner.mjs';
+import { fish, spots, localDay, localTime, combineForecast, pickWindow, pickWeatherWindow, hasFutureHour, inGuideSeason, forecastTargets, supportsTarget, mapsUrl } from './planner.mjs';
 
 const $ = id => document.getElementById(id);
 const number = new Intl.NumberFormat('tr-TR', { maximumFractionDigits: 1 });
@@ -56,7 +56,14 @@ function renderLog() {
 }
 
 function initializeSelectors() {
-  for (const id of new Set(spots.map(spot => spot.fish))) $('target').add(new Option(fish[id].name, id));
+  const sea = element('optgroup');
+  const inland = element('optgroup');
+  sea.label = 'Deniz balıkları';
+  inland.label = 'Tatlı su balıkları';
+  for (const [id, species] of Object.entries(fish).sort((a, b) => a[1].name.localeCompare(b[1].name, 'tr'))) {
+    (species.inland ? inland : sea).append(new Option(species.name, id));
+  }
+  $('target').append(sea, inland);
   const form = $('log-form');
   const spotNames = new Set([...spots.map(spot => spot.name), 'Mudanya', 'Mudanya · Deniz noktası', 'Gemlik',
     'Tirilye', 'İznik Gölü', 'Uluabat Gölü', ...readArray('mera:spots').map(spot => spot.name), ...records.map(record => record.spot)]);
@@ -116,8 +123,7 @@ function recommendation(spot, window) {
   details.append(element('summary', 'Neden bu öneri?'), element('p', spot.evidence),
     element('p', 'Atış noktasının dibi bilinmiyor. Saat aralığındaki en yüksek model değerleri gösteriliyor.'), link('Av kaynağını aç', spot.source));
   const actions = element('div', undefined, 'card-actions');
-  actions.append(link('Merayı haritada aç', 'https://www.openstreetmap.org/?mlat=' + spot.lat + '&mlon=' + spot.lon +
-    '#map=17/' + spot.lat + '/' + spot.lon));
+  actions.append(link('Merayı Google Maps’te aç', mapsUrl(spot)));
   const saved = records.filter(record => record.fish === spot.fish && record.spot === spot.name);
   if (saved.length) details.append(element('p', 'Av defterin: ' + saved.filter(record => Number(record.count) > 0).length + '/' + saved.length + ' kayıt sonuç verdi.'));
   card.append(heading, element('div', when, 'window'), element('p', species.bait + ' · ' + species.rig, 'tackle'), metrics, details, actions);
@@ -134,7 +140,10 @@ function plansFor(eligible, date, now, weatherOnly = false) {
 function renderEmptyPlan(cards, eligible, date, offset, target, now) {
   const card = element('article', undefined, 'card empty');
   let reason = 'Sezon, ışık ve model verisi birlikte uygun bir tür önerisi vermedi.';
-  if (!eligible.length) reason = 'Seçtiğin türün merası için tahmin alınamadı.';
+  if (target && !supportsTarget(target)) {
+    reason = fish[target].inland ? 'Bu tatlı su türü av defterine eklenebilir. Av planı Bursa’nın deniz kıyılarını kapsıyor.'
+      : 'Bu tür listede var. Bursa kıyısında saat önermek için yeterli mera ve av bilgisi yok.';
+  } else if (!eligible.length) reason = 'Seçtiğin türün merası için tahmin alınamadı.';
   else if (!eligible.some(({ hours }) => hasFutureHour(hours, date, now))) {
     reason = offset === 0 ? 'Bugünün son tahmin saati geçti.' : 'Bu gün için henüz saatlik tahmin yok.';
   } else if (target && eligible.every(({ spot }) => !inGuideSeason(spot, date))) {
@@ -153,7 +162,8 @@ function renderEmptyPlan(cards, eligible, date, offset, target, now) {
     const title = comparison ? label + ' · ' + fish[spot.fish].name : label + ' · Yalnızca hava ve deniz';
     preview.append(element('strong', title),
       element('p', spot.name + ' · ' + window.start.slice(11, 16) + '–' + clock.format(window.end)),
-      element('small', 'Rüzgâr ' + number.format(window.wind) + ' km/sa · Dalga ' + number.format(window.wave) + ' m'));
+      element('small', 'Rüzgâr ' + number.format(window.wind) + ' km/sa · Dalga ' + number.format(window.wave) + ' m'),
+      link('Merayı Google Maps’te aç', mapsUrl(spot)));
     card.append(preview);
     break;
   }
@@ -181,7 +191,7 @@ function renderPlan(now = Date.now()) {
   const cards = $('recommendations');
   cards.replaceChildren();
   if (!forecasts.length) return;
-  const eligible = forecasts.filter(({ spot }) => !target || target === spot.fish);
+  const eligible = forecastTargets(forecasts, target);
   $('status').textContent = 'Open-Meteo hava ve deniz tahmini · ' + clock.format(acquiredAt) +
     ' · ' + forecasts.length + '/' + spots.length + ' mera';
   const plans = plansFor(eligible, date, now);
@@ -189,7 +199,13 @@ function renderPlan(now = Date.now()) {
     renderEmptyPlan(cards, eligible, date, offset, target, now);
     return;
   }
-  for (const plan of plans.slice(0, 3)) cards.append(recommendation(plan.spot, plan.window));
+  const shown = new Set();
+  for (const plan of plans) {
+    if (shown.has(plan.spot.name)) continue;
+    shown.add(plan.spot.name);
+    cards.append(recommendation(plan.spot, plan.window));
+    if (shown.size === 3) break;
+  }
 }
 
 async function loadPlan() {

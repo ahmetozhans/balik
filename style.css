@@ -50,3 +50,5 @@ details p{margin:8px 0}
 .empty-preview{margin:10px 0 13px;padding:10px 12px;border-radius:10px;background:#edf1e6}
 .empty-preview p{margin:4px 0}
 .empty button{margin:5px 6px 0 0}
+
+.empty-preview small{display:block;margin-bottom:5px}
