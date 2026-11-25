@@ -55,6 +55,8 @@ function fillSelect(select, items, selected) {
 }
 let spots = [...starterSpots, ...read('mera:spots', [])];
 let records = read('mera:log', []);
+let bottomTypes = read('mera:bottom-types', {});
+const bottomLabels = { sand: 'Kum', rock: 'Kaya', grass: 'Deniz çayırı', mud: 'Çamur', mixed: 'Karışık' };
 let activeSpot = spots.find(spot => spot.id === read('mera:active', 'mudanya')) || spots[0];
 let mode = read('mera:mode', 'shore');
 $('mode').value = mode;
@@ -89,6 +91,10 @@ function refreshSpots() {
 function renderMap() {
   const { lat, lon } = activeSpot;
   $('map-link').href = 'https://www.openstreetmap.org/?mlat=' + lat + '&mlon=' + lon + '#map=13/' + lat + '/' + lon;
+  const bottom = bottomTypes[activeSpot.id] || '';
+  $('bottom-form').hidden = activeSpot.water === 'fresh';
+  $('bottom-type').value = bottom;
+  $('bottom-status').textContent = bottom ? 'Kişisel gözlem: ' + bottomLabels[bottom] : 'Bu mera için kayıtlı dip bilgisi yok.';
   if (selectedView !== 'spots') return;
   const box = [Math.max(-180, lon - .065), Math.max(-90, lat - .045), Math.min(180, lon + .065), Math.min(90, lat + .045)];
   const url = 'https://www.openstreetmap.org/export/embed.html?bbox=' + box.join('%2C') + '&layer=mapnik&marker=' + lat + '%2C' + lon;
@@ -453,6 +459,8 @@ function renderForecast() {
     description.append(el('h2', activeSpot.name + ' · ' + species.name),
       el('p', 'En iyi saat ' + top.item.time.slice(11, 16), 'time'),
       el('p', species.bait + ' · ' + species.rig));
+    const bottom = bottomLabels[bottomTypes[activeSpot.id]];
+    if (bottom) description.append(el('small', 'Dip · ' + bottom + ' · Kişisel gözlem'));
     summary.append(description, el('div', top.result.value + ' / 100', 'score'));
     const factors = el('details', '');
     factors.append(el('summary', 'Av puanı nasıl oluştu?'),
@@ -608,6 +616,20 @@ $('spot-form').onsubmit = event => {
   form.reset();
   $('gps-status').textContent = spot.name + ' kaydedildi.';
   changeSpot(spot);
+};
+$('bottom-form').onsubmit = event => {
+  event.preventDefault();
+  const type = $('bottom-type').value;
+  const next = { ...bottomTypes };
+  if (Object.hasOwn(bottomLabels, type)) next[activeSpot.id] = type;
+  else delete next[activeSpot.id];
+  if (!write('mera:bottom-types', next)) {
+    $('bottom-status').textContent = 'Dip bilgisi kaydedilemedi.';
+    return;
+  }
+  bottomTypes = next;
+  renderMap();
+  renderForecast();
 };
 $('gps').onclick = () => {
   if (!navigator.geolocation) {
