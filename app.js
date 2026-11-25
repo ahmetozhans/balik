@@ -103,7 +103,7 @@ function classifyBottom(properties) {
     if (/rock|bedrock/i.test(label)) return 'Kaya / sert zemin';
     if (/gravel|coarse sediment/i.test(label)) return 'Çakıl / iri tortu';
     if (/mud|clay|silt/i.test(label)) return 'Çamur / ince tortu';
-    if (/\\bsands?\\b/i.test(label)) return 'Kum';
+    if (/\bsands?\b/i.test(label)) return 'Kum';
   }
   return '';
 }
@@ -380,6 +380,72 @@ function best(items) {
     const result = score(comparable);
     return !winner || result.value > winner.result.value ? { item, result } : winner;
   }, null);
+}
+const habitatProfiles = {
+  mirmir: { bottom: ['Kum', 'Çamurlu kum'], time: 'night', source: 'https://fishes-fnam.linnaeus.naturalis.nl/linnaeus_ng/app/views/species/taxon.php?id=109666' },
+  levrek: { bottom: ['Kum', 'Kaya / sert zemin'], time: 'twilight', source: 'https://www.fishbase.org/Ecology/Dicentrarchus_labrax' },
+  isparoz: { bottom: ['Deniz çayırı kaydı', 'Kum'], source: 'https://www.fishbase.org/Ecology/Diplodus_annularis' },
+  istavrit: { time: 'edges', source: 'https://www.baliksende.com/nokta/bursa/mudanya/mudanya' }
+};
+
+function fishingLight(hour) {
+  const stamp = Date.parse(hour.time + '+03:00');
+  const sunrise = Date.parse(hour.sunrise + '+03:00');
+  const sunset = Date.parse(hour.sunset + '+03:00');
+  if (![stamp, sunrise, sunset].every(Number.isFinite)) return '';
+  if (Math.min(Math.abs(stamp - sunrise), Math.abs(stamp - sunset)) <= 90 * 60000) return 'twilight';
+  return stamp < sunrise || stamp > sunset ? 'night' : 'day';
+}
+
+function speciesSuggestions(items, dipLabel) {
+  const grounds = dipLabel ? dipLabel.split(' + ') : [];
+  const substrateKnown = grounds.some(ground => ground !== 'Deniz çayırı kaydı');
+  return Object.entries(fish).filter(([, species]) => matchesMode(species)).flatMap(([key, species]) => {
+    const profile = habitatProfiles[key];
+    if (!profile) return [];
+    const matchingGround = profile?.bottom?.find(ground => grounds.includes(ground));
+    if (profile?.bottom && substrateKnown && !matchingGround) return [];
+    const candidates = items.filter(hour => {
+      if (!species.months.includes(Number(hour.time.slice(5, 7)))) return false;
+      if (!profile?.time) return true;
+      const light = fishingLight(hour);
+      return light === profile.time || (profile.time === 'edges' && (light === 'twilight' || light === 'night'));
+    });
+    const peak = best(candidates);
+    if (!peak) return [];
+    const reasons = [matchingGround ? matchingGround + ' · EMODnet' : profile?.bottom
+      ? 'Uyumlu dip kaydı yok' : 'Zemin eşleşmesi kullanılmadı', 'Bölgesel sezon rehberi'];
+    if (profile?.time === 'night') reasons.push('Gece · av rehberi');
+    if (profile?.time === 'twilight') reasons.push('Alacakaranlık · av rehberi');
+    if (profile?.time === 'edges') reasons.push('Alacakaranlık veya gece · av rehberi');
+    return [{ species, profile, peak, reasons, matchingGround }];
+  }).sort((a, b) => Number(Boolean(b.matchingGround)) - Number(Boolean(a.matchingGround))
+    || b.peak.result.value - a.peak.result.value);
+}
+
+function suggestionCard(items) {
+  const card = el('article', '', 'species-card');
+  card.append(el('h2', 'Bu merada hangi balık denenebilir?'));
+  const results = speciesSuggestions(items, bottom.label);
+  if (!results.length) {
+    card.append(el('p', 'Kalan saatler için sezon, habitat ve koşul eşleşmesi bulunamadı.', 'muted'));
+    return card;
+  }
+  for (const result of results.slice(0, 3)) {
+    const item = el('div', '', 'species-pick');
+    item.append(el('h3', result.species.name + ' · ' + result.peak.item.time.slice(11, 16)),
+      el('p', conditionSummary(result.peak.item)),
+      el('p', result.reasons.join(' · '), 'muted'),
+      el('p', result.species.bait + ' · ' + result.species.rig));
+    const source = el('a', 'Tür kaynağı');
+    source.href = result.profile.source;
+    source.target = '_blank';
+    source.rel = 'noopener';
+    item.append(source);
+    card.append(item);
+  }
+  card.append(el('small', 'Habitat ve av rehberine göre deneme önerisi. Türün o anda merada bulunduğuna dair canlı kayıt yok.'));
+  return card;
 }
 function conditionSummary(hour) {
   return 'Rüzgâr ' + format(hour.wind, 'km/sa') +
@@ -703,7 +769,7 @@ function renderForecast() {
   const trips = records.filter(entry => entry.spot === activeSpot.name && entry.fish === speciesKey);
   if (trips.length) guide.append(el('small', 'Av defterin · ' + trips.filter(entry => Number(entry.count) > 0).length +
     ' sonuç veren av / ' + trips.length + ' kayıt'));
-  today.append(guide);
+  today.append(suggestionCard(todaysHours), guide);
 
   const dates = new Map();
   for (const item of upcoming) {
@@ -715,6 +781,8 @@ function renderForecast() {
     const pick = best(items);
     const card = el('article', '', 'plan-day');
     card.append(el('h2', dayFormat.format(new Date(date + 'T12:00:00+03:00'))));
+    const speciesPick = speciesSuggestions(items, bottom.label)[0];
+    if (speciesPick) card.append(el('p', 'Tür önerisi · ' + speciesPick.species.name + ' · ' + speciesPick.peak.item.time.slice(11, 16), 'muted'));
     if (pick) {
       card.append(el('p', pick.item.time.slice(11, 16) + ' · ' + conditionSummary(pick.item)));
       const reminder = el('button', 'Takvime ekle', 'calendar-button');

@@ -75,3 +75,7 @@ nav button[aria-current]{background:#23403b}
 .plan-day p{margin-bottom:4px}
 #today details article{padding:0;border:0;background:transparent}
 @media(max-width:375px){.trip-controls select{font-size:14px}}
+
+.species-pick{padding:12px 0;border-top:1px solid var(--line)}
+.species-pick p{margin-bottom:5px}
+.species-pick a{font-size:13px}

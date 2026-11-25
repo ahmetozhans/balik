@@ -15,3 +15,5 @@ Kıyı, tekne ve tatlı su modlarında uygun meralar ve türler gösterilir. Gö
 Bursa tür listesi için [Mudanya](https://www.baliksende.com/nokta/bursa/mudanya/mudanya), [Gemlik](https://www.baliksende.com/nokta/bursa/gemlik/gemlik) ve [Bursa İl Tarım ve Orman Müdürlüğü](https://bursa.tarimorman.gov.tr/Duyuru/787/Uluabat-Golu-Su-Urunleri-Istihsal-Hakkinin-Kiraya-Verilmesi-Hakkinda-Duyuru) kaynakları incelendi. Ay filtreleri av tahminindeki sezon varsayımlarını gösterir.
 
 Deniz modunda dip verisi, seçili meranın koordinatıyla EMODnet Geology ve Seabed Habitats WMS servislerinden sorgulanır. Sonuçlar katman kapsamına ve çözünürlüğüne bağlıdır.
+
+Tür önerisi ayrı bir rehberdir. Uygulama belgelenen habitatı, sezon rehberini ve türün av saatlerini karşılaştırır. Ardından eşleşen saatler arasında mevcut model verilerine göre daha sakin saati gösterir. Denizde rüzgâr veya dalga verisi eksikse saat önerilmez.
