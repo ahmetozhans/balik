@@ -13,6 +13,7 @@ const fish = {
   istavrit: { name: 'İstavrit', months: [4, 5, 6, 7, 8, 9, 10, 11], temp: 19, bait: 'Tüylü veya silikonlu köstek', rig: 'İstavrit çaparisi' },
   lufer: { name: 'Lüfer', months: [9, 10, 11, 12], temp: 17, bait: 'Kaşık veya ince profilli minnow', rig: 'Spin takımı' },
   palamut: { name: 'Palamut', months: [8, 9, 10, 11], temp: 21, bait: 'Metal jig veya uzun minnow', rig: 'Kıyıdan spin' },
+  mirmir: { name: 'Mırmır', months: [5, 6, 7, 8, 9, 10], bait: 'Kum kurdu veya boru kurdu', rig: 'Kumluk kıyıda yemli dip takımı' },
   mezgit: { name: 'Mezgit', months: [1, 2, 3, 10, 11, 12], bait: 'Karides parçası veya kum kurdu', rig: 'Yemli dip takımı' },
   kefal: { name: 'Kefal', months: [4, 5, 6, 7, 8, 9, 10], bait: 'Ekmek veya hamur', rig: 'Şamandıralı ince takım' },
   izmarit: { name: 'İzmarit', months: [4, 5, 6, 9, 10, 11], bait: 'Kum kurdu veya karides', rig: 'İnce çapari veya kısa köstekli dip takımı' },
