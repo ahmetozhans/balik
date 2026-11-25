@@ -141,87 +141,77 @@ function bottomResult(results) {
       : 'Bu koordinatta dip sınıfı kaydı bulunamadı.' };
 }
 
+let meraMap;
+let meraPins;
+let conditionPins;
+let dipLayers;
+let dipLayerControl;
+let mapSpotId;
+
+async function inspectMapPoint(event) {
+  if (mode === 'fresh') return;
+  bottomPointRequest?.abort();
+  const request = new AbortController();
+  bottomPointRequest = request;
+  const point = event.latlng.wrap();
+  const text = el('div', 'Dip verisi sorgulanıyor…');
+  const popup = L.popup().setLatLng(point).setContent(text).openOn(meraMap);
+  const timer = setTimeout(() => request.abort(), 12000);
+  try {
+    const values = await Promise.allSettled(bottomSources.map(source => queryBottom(source, point, request.signal)));
+    if (bottomPointRequest !== request || !meraMap.hasLayer(popup)) return;
+    text.textContent = bottomResult(values).text;
+    popup.update();
+  } finally { clearTimeout(timer); }
+}
+
 async function renderBottomMap() {
+  if (!meraMap) return;
   bottomMapRequest?.abort();
   bottomPointRequest?.abort();
-  const detail = $('bottom-map');
-  const plot = $('bottom-map-image');
-  const status = $('bottom-map-status');
   const legend = $('bottom-map-legend');
-  plot.replaceChildren();
+  const status = $('map-status');
   legend.replaceChildren();
-  if (!detail.open || activeSpot.water === 'fresh') return;
+  dipLayers.clearLayers();
+  dipLayerControl?.remove();
+  dipLayerControl = undefined;
+  if (mode === 'fresh') {
+    status.textContent = 'Tatlı su meraları';
+    return;
+  }
   const controller = new AbortController();
   bottomMapRequest = controller;
   const timer = setTimeout(() => controller.abort(), 12000);
-  status.textContent = 'EMODnet harita katmanları yükleniyor…';
-  const { lat, lon } = activeSpot;
-  const dLat = Math.min(.025, 90 - Math.abs(lat));
-  const dLon = Math.min(.05, 180 - Math.abs(lon));
-  if (dLat <= 0 || dLon <= 0) {
-    clearTimeout(timer);
-    status.textContent = 'Bu koordinat için harita açılamadı.';
-    return;
-  }
-  const bbox = [lat - dLat, lon - dLon, lat + dLat, lon + dLon].join(',');
+  status.textContent = 'EMODnet katmanları yükleniyor…';
   try {
     const results = await Promise.allSettled(bottomSources.map(async source => ({
       source, layers: await bottomLayers(source, controller.signal)
     })));
-    if (bottomMapRequest !== controller || !detail.open) return;
+    if (bottomMapRequest !== controller || mode === 'fresh') return;
     const available = results.flatMap(result => result.status === 'fulfilled' ? [result.value] : []);
-    if (!available.length) {
-      status.textContent = 'Harita katmanlarına şu an erişilemiyor.';
-      return;
-    }
-    let loadedImages = 0;
-    let failedImages = 0;
+    const overlays = {};
     for (const { source, layers } of available) {
       const names = [...new Set(layers.map(layer => layer.name))].slice(0, 4);
-      const image = el('img', '');
-      image.alt = '';
-      image.onload = () => { loadedImages++; };
-      image.onerror = () => {
-        failedImages++;
-        if (failedImages === available.length && !loadedImages && plot.contains(image)) {
-          status.textContent = 'Harita görüntüsü alınamadı. Nokta sorgusunu yine de deneyebilirsin.';
-        }
-      };
-      image.src = wmsUrl(source, { REQUEST: 'GetMap', CRS: 'EPSG:4326', BBOX: bbox,
-        WIDTH: 640, HEIGHT: 420, LAYERS: names.join(','), STYLES: '', TRANSPARENT: 'TRUE', FORMAT: 'image/png' });
-      plot.append(image);
+      const title = source.type === 'substrate' ? 'Dip zemini' : 'Deniz çayırı';
+      const overlay = L.tileLayer.wms(source.url, { layers: names.join(','), format: 'image/png',
+        version: '1.3.0', transparent: true, opacity: .65, attribution: 'EMODnet' });
+      overlay.on('tileerror', () => {
+        if (bottomMapRequest === controller) status.textContent = 'Bazı dip haritası karoları yüklenemedi. Noktaya dokunarak veriyi sorgulayabilirsin.';
+      });
+      dipLayers.addLayer(overlay);
+      overlays[title] = overlay;
       for (const name of names) {
-        const link = el('a', (source.type === 'substrate' ? 'Zemin' : 'Çayır') + ' renk anahtarı');
+        const link = el('a', title + ' · Renk anahtarı');
         link.href = wmsUrl(source, { REQUEST: 'GetLegendGraphic', VERSION: '1.1.1', FORMAT: 'image/png', LAYER: name });
         link.target = '_blank';
         link.rel = 'noopener';
         legend.append(link);
       }
     }
-    const target = el('button', '');
-    target.type = 'button';
-    target.setAttribute('aria-label', 'Haritada dip verisi sorgula');
-    target.onclick = async event => {
-      const bounds = target.getBoundingClientRect();
-      const x = event.detail ? Math.max(0, Math.min(1, (event.clientX - bounds.left) / bounds.width)) : .5;
-      const y = event.detail ? Math.max(0, Math.min(1, (event.clientY - bounds.top) / bounds.height)) : .5;
-      const point = { lat: lat + dLat * (1 - 2 * y), lon: lon + dLon * (2 * x - 1) };
-      target.style.setProperty('--pin-x', 100 * x + '%');
-      target.style.setProperty('--pin-y', 100 * y + '%');
-      bottomPointRequest?.abort();
-      const query = new AbortController();
-      bottomPointRequest = query;
-      const timeout = setTimeout(() => query.abort(), 12000);
-      status.textContent = 'Seçilen nokta sorgulanıyor…';
-      try {
-        const values = await Promise.allSettled(bottomSources.map(source => queryBottom(source, point, query.signal)));
-        if (bottomPointRequest !== query || !plot.contains(target)) return;
-        status.textContent = point.lat.toFixed(5) + ', ' + point.lon.toFixed(5) + ' · ' + bottomResult(values).text;
-      } finally { clearTimeout(timeout); }
-    };
-    plot.append(target);
-    status.textContent = 'EMODnet · Mera merkezde. Dip bilgisini görmek için haritada bir noktaya dokun.' +
-      (available.length < bottomSources.length ? ' Bazı katmanlar yüklenemedi.' : '');
+    if (available.length) dipLayerControl = L.control.layers({}, overlays, { position: 'topright' }).addTo(meraMap);
+    status.textContent = available.length
+      ? 'Dip bilgisini görmek için haritada bir noktaya dokun.' + (available.length < bottomSources.length ? ' Bazı katmanlar kullanılamıyor.' : '')
+      : 'Dip katmanları yüklenemedi. Nokta sorgusunu yine de deneyebilirsin.';
   } finally { clearTimeout(timer); }
 }
 
@@ -287,9 +277,36 @@ function renderMap() {
   const { lat, lon } = activeSpot;
   $('map-link').href = 'https://www.openstreetmap.org/?mlat=' + lat + '&mlon=' + lon + '#map=13/' + lat + '/' + lon;
   if (selectedView !== 'spots') return;
-  const box = [Math.max(-180, lon - .065), Math.max(-90, lat - .045), Math.min(180, lon + .065), Math.min(90, lat + .045)];
-  const url = 'https://www.openstreetmap.org/export/embed.html?bbox=' + box.join('%2C') + '&layer=mapnik&marker=' + lat + '%2C' + lon;
-  if ($('map').src !== url) $('map').src = url;
+  if (!window.L) {
+    $('map-status').textContent = 'Harita yüklenemedi. OpenStreetMap bağlantısını kullanabilirsin.';
+    return;
+  }
+  if (!meraMap) {
+    meraMap = L.map('map', { scrollWheelZoom: false }).setView([lat, lon], 13);
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+    }).addTo(meraMap);
+    dipLayers = L.layerGroup().addTo(meraMap);
+    meraPins = L.layerGroup().addTo(meraMap);
+    conditionPins = L.layerGroup().addTo(meraMap);
+    meraMap.on('click', inspectMapPoint);
+  }
+  meraMap.invalidateSize({ pan: false });
+  if (mapSpotId === activeSpot.id) return;
+  mapSpotId = activeSpot.id;
+  meraMap.closePopup();
+  meraMap.setView([lat, lon], 13);
+  meraPins.clearLayers();
+  for (const spot of modeSpots()) {
+    const active = spot.id === activeSpot.id;
+    const pin = L.circleMarker([spot.lat, spot.lon], {
+      radius: active ? 8 : 5, color: '#fff', weight: 2, fillColor: active ? '#00766d' : '#26648a', fillOpacity: 1
+    });
+    pin.bindTooltip(el('span', spot.name));
+    pin.on('click', () => active ? inspectMapPoint({ latlng: pin.getLatLng() }) : changeSpot(spot));
+    meraPins.addLayer(pin);
+  }
+  renderBottomMap();
 }
 function urls(spot) {
   const query = new URLSearchParams({ latitude: spot.lat, longitude: spot.lon, timezone: 'Europe/Istanbul', forecast_days: 7 });
@@ -512,6 +529,7 @@ function resetHeat() {
   heatRequest = undefined;
   $('heat-button').disabled = false;
   $('heat-result').replaceChildren();
+  conditionPins?.clearLayers();
 }
 async function loadHeatMap() {
   resetHeat();
@@ -567,26 +585,20 @@ async function loadHeatMap() {
       return;
     }
     result.replaceChildren(el('p', 'Koşul endeksi · ' + points.length + '/' + nearby.length + ' mera'));
-    const plot = el('div', '', 'heat-map');
-    plot.setAttribute('aria-label', 'Meraların yaklaşık konumları. Üst taraf kuzey.');
     const list = el('div', '', 'heat-list');
-    const lats = points.map(({ spot }) => spot.lat);
-    const lons = points.map(({ spot }) => spot.lon);
-    const latMin = Math.min(...lats) - .02;
-    const lonMin = Math.min(...lons) - .02;
-    const latSpan = Math.max(...lats) + .02 - latMin;
-    const lonSpan = Math.max(...lons) + .02 - lonMin;
     for (const { spot, value } of points) {
-      const pin = el('button', value, 'heat-point');
-      pin.style.left = (100 * (spot.lon - lonMin) / lonSpan) + '%';
-      pin.style.top = (100 * (1 - (spot.lat - latMin) / latSpan)) + '%';
-      pin.style.background = 'hsl(' + Math.round(value * 1.2) + ' 73% 68%)';
-      pin.setAttribute('aria-label', spot.name + ' ' + value + ' puan');
-      pin.onclick = () => changeSpot(spot);
-      plot.append(pin);
-      list.append(el('p', spot.name + ' · ' + value + ' / 100'));
+      const label = el('span', spot.name + ' · ' + value + ' / 100');
+      if (conditionPins) {
+        const marker = L.circleMarker([spot.lat, spot.lon], { radius: 11, color: '#26333b', weight: 1,
+          fillColor: 'hsl(' + Math.round(value * 1.2) + ' 73% 68%)', fillOpacity: 1 });
+        marker.bindTooltip(el('span', label.textContent));
+        marker.on('click', () => inspectMapPoint({ latlng: marker.getLatLng() }));
+        conditionPins.addLayer(marker);
+      }
+      list.append(label);
     }
-    result.append(plot, list);
+    if (meraMap && points.length > 1) meraMap.fitBounds(points.map(({ spot }) => [spot.lat, spot.lon]), { padding: [25, 25], maxZoom: 13 });
+    result.append(list);
   } finally {
     clearTimeout(timer);
     if (heatRequest === controller) button.disabled = false;
@@ -870,7 +882,6 @@ function changeSpot(spot) {
   refreshSpots();
   renderMap();
   loadBottom();
-  renderBottomMap();
   loadForecast();
 }
 function renderLog() {
@@ -967,8 +978,7 @@ $('spot-form').onsubmit = event => {
   $('gps-status').textContent = spot.name + ' kaydedildi.';
   changeSpot(spot);
 };
-$('bottom-refresh').onclick = loadBottom;
-$('bottom-map').ontoggle = renderBottomMap;
+$('bottom-refresh').onclick = () => { loadBottom(); renderBottomMap(); };
 $('gps').onclick = () => {
   if (!navigator.geolocation) {
     $('gps-status').textContent = 'Konum alınamıyor. Uygulamayı HTTPS üzerinden aç veya koordinatı elle gir.';
