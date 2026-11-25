@@ -56,6 +56,9 @@ function fillSelect(select, items, selected) {
 let spots = [...starterSpots, ...read('mera:spots', [])];
 let records = read('mera:log', []);
 let bottomRequest;
+let bottomMapRequest;
+let bottomPointRequest;
+
 let bottom = { text: '' };
 const layerCatalogs = new Map();
 const bottomSources = [
@@ -129,6 +132,99 @@ async function queryBottom(source, spot, signal) {
   return data.features.map(item => classifyBottom(item.properties || {})).find(Boolean) || '';
 }
 
+function bottomResult(results) {
+  const labels = results.flatMap(result => result.status === 'fulfilled' && result.value ? [result.value] : []);
+  const partial = results.some(result => result.status === 'rejected');
+  return { label: labels.join(' + '), text: labels.length
+    ? labels.join(' · ') + ' · EMODnet' + (partial ? ' · Bazı katmanlar sorgulanamadı.' : '')
+    : partial ? 'Dip verisi doğrulanamadı. Bazı katmanlara erişilemiyor.'
+      : 'Bu koordinatta dip sınıfı kaydı bulunamadı.' };
+}
+
+async function renderBottomMap() {
+  bottomMapRequest?.abort();
+  bottomPointRequest?.abort();
+  const detail = $('bottom-map');
+  const plot = $('bottom-map-image');
+  const status = $('bottom-map-status');
+  const legend = $('bottom-map-legend');
+  plot.replaceChildren();
+  legend.replaceChildren();
+  if (!detail.open || activeSpot.water === 'fresh') return;
+  const controller = new AbortController();
+  bottomMapRequest = controller;
+  const timer = setTimeout(() => controller.abort(), 12000);
+  status.textContent = 'EMODnet harita katmanları yükleniyor…';
+  const { lat, lon } = activeSpot;
+  const dLat = Math.min(.025, 90 - Math.abs(lat));
+  const dLon = Math.min(.05, 180 - Math.abs(lon));
+  if (dLat <= 0 || dLon <= 0) {
+    clearTimeout(timer);
+    status.textContent = 'Bu koordinat için harita açılamadı.';
+    return;
+  }
+  const bbox = [lat - dLat, lon - dLon, lat + dLat, lon + dLon].join(',');
+  try {
+    const results = await Promise.allSettled(bottomSources.map(async source => ({
+      source, layers: await bottomLayers(source, controller.signal)
+    })));
+    if (bottomMapRequest !== controller || !detail.open) return;
+    const available = results.flatMap(result => result.status === 'fulfilled' ? [result.value] : []);
+    if (!available.length) {
+      status.textContent = 'Harita katmanlarına şu an erişilemiyor.';
+      return;
+    }
+    let loadedImages = 0;
+    let failedImages = 0;
+    for (const { source, layers } of available) {
+      const names = [...new Set(layers.map(layer => layer.name))].slice(0, 4);
+      const image = el('img', '');
+      image.alt = '';
+      image.onload = () => { loadedImages++; };
+      image.onerror = () => {
+        failedImages++;
+        if (failedImages === available.length && !loadedImages && plot.contains(image)) {
+          status.textContent = 'Harita görüntüsü alınamadı. Nokta sorgusunu yine de deneyebilirsin.';
+        }
+      };
+      image.src = wmsUrl(source, { REQUEST: 'GetMap', CRS: 'EPSG:4326', BBOX: bbox,
+        WIDTH: 640, HEIGHT: 420, LAYERS: names.join(','), STYLES: '', TRANSPARENT: 'TRUE', FORMAT: 'image/png' });
+      plot.append(image);
+      for (const name of names) {
+        const link = el('a', (source.type === 'substrate' ? 'Zemin' : 'Çayır') + ' renk anahtarı');
+        link.href = wmsUrl(source, { REQUEST: 'GetLegendGraphic', VERSION: '1.1.1', FORMAT: 'image/png', LAYER: name });
+        link.target = '_blank';
+        link.rel = 'noopener';
+        legend.append(link);
+      }
+    }
+    const target = el('button', '');
+    target.type = 'button';
+    target.setAttribute('aria-label', 'Haritada dip verisi sorgula');
+    target.onclick = async event => {
+      const bounds = target.getBoundingClientRect();
+      const x = event.detail ? Math.max(0, Math.min(1, (event.clientX - bounds.left) / bounds.width)) : .5;
+      const y = event.detail ? Math.max(0, Math.min(1, (event.clientY - bounds.top) / bounds.height)) : .5;
+      const point = { lat: lat + dLat * (1 - 2 * y), lon: lon + dLon * (2 * x - 1) };
+      target.style.setProperty('--pin-x', 100 * x + '%');
+      target.style.setProperty('--pin-y', 100 * y + '%');
+      bottomPointRequest?.abort();
+      const query = new AbortController();
+      bottomPointRequest = query;
+      const timeout = setTimeout(() => query.abort(), 12000);
+      status.textContent = 'Seçilen nokta sorgulanıyor…';
+      try {
+        const values = await Promise.allSettled(bottomSources.map(source => queryBottom(source, point, query.signal)));
+        if (bottomPointRequest !== query || !plot.contains(target)) return;
+        status.textContent = point.lat.toFixed(5) + ', ' + point.lon.toFixed(5) + ' · ' + bottomResult(values).text;
+      } finally { clearTimeout(timeout); }
+    };
+    plot.append(target);
+    status.textContent = 'EMODnet · Mera merkezde. Dip bilgisini görmek için haritada bir noktaya dokun.' +
+      (available.length < bottomSources.length ? ' Bazı katmanlar yüklenemedi.' : '');
+  } finally { clearTimeout(timer); }
+}
+
 function renderBottom() {
   $('bottom-panel').hidden = activeSpot.water === 'fresh';
   $('bottom-status').textContent = bottom.text;
@@ -147,12 +243,7 @@ async function loadBottom() {
   try {
     const results = await Promise.allSettled(bottomSources.map(source => queryBottom(source, spot, controller.signal)));
     if (bottomRequest !== controller) return;
-    const labels = results.flatMap(result => result.status === 'fulfilled' && result.value ? [result.value] : []);
-    const partial = results.some(result => result.status === 'rejected');
-    bottom = { label: labels.join(' + '), text: labels.length
-      ? labels.join(' · ') + ' · EMODnet' + (partial ? ' · Bazı katmanlar sorgulanamadı.' : '')
-      : partial ? 'Dip verisi doğrulanamadı. Kaynak katmanlarına şu an erişilemiyor.'
-        : 'Bu koordinatta dip sınıfı kaydı bulunamadı.' };
+    bottom = bottomResult(results);
     renderBottom();
     renderForecast();
   } finally {
@@ -626,6 +717,7 @@ function changeSpot(spot) {
   refreshSpots();
   renderMap();
   loadBottom();
+  renderBottomMap();
   loadForecast();
 }
 function renderLog() {
@@ -717,6 +809,7 @@ $('spot-form').onsubmit = event => {
   changeSpot(spot);
 };
 $('bottom-refresh').onclick = loadBottom;
+$('bottom-map').ontoggle = renderBottomMap;
 $('gps').onclick = () => {
   if (!navigator.geolocation) {
     $('gps-status').textContent = 'Konum alınamıyor. Uygulamayı HTTPS üzerinden aç veya koordinatı elle gir.';
