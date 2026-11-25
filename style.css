@@ -88,3 +88,9 @@ a{color:var(--sea)}
 .dip-popup p{margin:6px 0}
 .dip-reference{border-top:1px solid var(--line);margin-top:8px;padding-top:8px}
 .dip-reference button{margin-top:4px;padding:6px;font-size:inherit}
+
+.cast-panel{margin:12px 0;padding:12px;border:1px solid var(--line);border-radius:12px}
+.cast-panel h2{margin:0}
+#cast-status{margin-top:8px}
+#cast-status span,#cast-status strong{display:block;margin-bottom:4px}
+.leaflet-popup-content .dip-popup>small{display:block}

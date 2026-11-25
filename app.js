@@ -161,6 +161,69 @@ let conditionPins;
 let dipLayers;
 let dipLayerControl;
 let mapSpotId;
+let castLayer;
+let castStart;
+let castSelecting = false;
+let castRequest;
+const castLimit = 25;
+
+function resetCast() {
+  castRequest?.abort();
+  castRequest = undefined;
+  castSelecting = false;
+  castStart = undefined;
+  castLayer?.clearLayers();
+  $('cast-start').textContent = '25 m atış alanını incele';
+  $('cast-reset').hidden = true;
+  $('cast-status').textContent = 'Kıyıdaki yerini ve oltanın düştüğü su noktasını seç.';
+}
+
+function startCast() {
+  if (!meraMap || mode !== 'shore') return;
+  resetCast();
+  castSelecting = true;
+  $('cast-start').textContent = 'Yeniden seç';
+  $('cast-reset').hidden = false;
+  $('cast-status').textContent = 'Haritada kıyıda durduğun yere dokun.';
+  meraMap.closePopup();
+  if (meraMap.getZoom() < 18) meraMap.setZoom(18);
+}
+
+async function pickCastPoint(point) {
+  const status = $('cast-status');
+  if (!castStart) {
+    castStart = point;
+    L.circleMarker(point, { radius: 6, color: '#fff', fillColor: '#00766d', fillOpacity: 1, interactive: false }).addTo(castLayer);
+    L.circle(point, { radius: castLimit, color: '#00766d', weight: 2, dashArray: '4 4', fillOpacity: .08, interactive: false }).addTo(castLayer);
+    status.textContent = 'Şimdi oltanın düştüğü su noktasına dokun.';
+    return;
+  }
+  const distance = meraMap.distance(castStart, point);
+  const length = new Intl.NumberFormat('tr-TR', { maximumFractionDigits: 1 }).format(distance) + ' m';
+  if (distance < 1 || distance > castLimit) {
+    status.textContent = 'Seçilen mesafe ' + length + '. Çemberin içinde, kıyı noktasından ayrı bir su noktası seç.';
+    return;
+  }
+  castSelecting = false;
+  L.polyline([castStart, point], { color: '#00766d', weight: 3, interactive: false }).addTo(castLayer);
+  L.circleMarker(point, { radius: 6, color: '#fff', fillColor: '#b65b30', fillOpacity: 1, interactive: false }).addTo(castLayer);
+  const request = new AbortController();
+  castRequest = request;
+  const timer = setTimeout(() => request.abort(), 12000);
+  status.textContent = length + ' · Atış noktasında dip verisi sorgulanıyor…';
+  try {
+    const records = await Promise.allSettled(bottomSources.map(source => queryBottom(source, { lat: point.lat, lon: point.lng }, request.signal)));
+    if (castRequest !== request) return;
+    const result = bottomResult(records);
+    status.replaceChildren(el('strong', length + ' · Atış alanının dip yapısı bilinmiyor.'));
+    if (result.label) {
+      status.append(el('span', 'EMODnet kaydı: ' + result.label + '. Bu katmanın ayrıntısı 25 m düzeyinde doğrulama için yeterli değil.'));
+    } else {
+      const failed = records.some(record => record.status === 'rejected');
+      status.append(el('span', failed ? 'Bazı veri katmanlarına ulaşılamadı.' : 'Seçilen su koordinatında açık dip kaydı bulunamadı.'));
+    }
+  } finally { clearTimeout(timer); }
+}
 
 const checkedDipPoints = [
   { name: 'Mudanya · Deniz noktası', lat: 40.383, lon: 28.884 },
@@ -327,6 +390,8 @@ function renderMap() {
   const { lat, lon } = activeSpot;
   $('map-link').href = 'https://www.openstreetmap.org/?mlat=' + lat + '&mlon=' + lon + '#map=13/' + lat + '/' + lon;
   if (selectedView !== 'spots') return;
+  $('cast-panel').hidden = mode !== 'shore';
+  if (mode !== 'shore') resetCast();
   if (!window.L) {
     $('map-status').textContent = 'Harita yüklenemedi. OpenStreetMap bağlantısını kullanabilirsin.';
     return;
@@ -339,21 +404,24 @@ function renderMap() {
     dipLayers = L.layerGroup().addTo(meraMap);
     meraPins = L.layerGroup().addTo(meraMap);
     conditionPins = L.layerGroup().addTo(meraMap);
-    meraMap.on('click', inspectMapPoint);
+    castLayer = L.layerGroup().addTo(meraMap);
+    meraMap.on('click', event => castSelecting ? pickCastPoint(event.latlng.wrap()) : inspectMapPoint(event));
   }
   meraMap.invalidateSize({ pan: false });
   if (mapSpotId === activeSpot.id) return;
   mapSpotId = activeSpot.id;
+  resetCast();
   meraMap.closePopup();
   meraMap.setView([lat, lon], 13);
   meraPins.clearLayers();
   for (const spot of modeSpots()) {
     const active = spot.id === activeSpot.id;
     const pin = L.circleMarker([spot.lat, spot.lon], {
-      radius: active ? 8 : 5, color: '#fff', weight: 2, fillColor: active ? '#00766d' : '#26648a', fillOpacity: 1
+      radius: active ? 8 : 5, bubblingMouseEvents: false, color: '#fff', weight: 2, fillColor: active ? '#00766d' : '#26648a', fillOpacity: 1
     });
     pin.bindTooltip(el('span', spot.name));
     pin.on('click', () => {
+      if (castSelecting) { pickCastPoint(pin.getLatLng()); return; }
       if (!active) changeSpot(spot);
       inspectMapPoint({ latlng: pin.getLatLng() });
     });
@@ -642,10 +710,10 @@ async function loadHeatMap() {
     for (const { spot, value } of points) {
       const label = el('span', spot.name + ' · ' + value + ' / 100');
       if (conditionPins) {
-        const marker = L.circleMarker([spot.lat, spot.lon], { radius: 11, color: '#26333b', weight: 1,
+        const marker = L.circleMarker([spot.lat, spot.lon], { radius: 11, bubblingMouseEvents: false, color: '#26333b', weight: 1,
           fillColor: 'hsl(' + Math.round(value * 1.2) + ' 73% 68%)', fillOpacity: 1 });
         marker.bindTooltip(el('span', label.textContent));
-        marker.on('click', () => inspectMapPoint({ latlng: marker.getLatLng() }));
+        marker.on('click', () => castSelecting ? pickCastPoint(marker.getLatLng()) : inspectMapPoint({ latlng: marker.getLatLng() }));
         conditionPins.addLayer(marker);
       }
       list.append(label);
@@ -1031,6 +1099,8 @@ $('spot-form').onsubmit = event => {
   $('gps-status').textContent = spot.name + ' kaydedildi.';
   changeSpot(spot);
 };
+$('cast-start').onclick = startCast;
+$('cast-reset').onclick = resetCast;
 $('bottom-refresh').onclick = () => { loadBottom(); renderBottomMap(); };
 $('gps').onclick = () => {
   if (!navigator.geolocation) {

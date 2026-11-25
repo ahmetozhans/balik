@@ -14,6 +14,11 @@
   <div class="spread"><h2>Mera haritası</h2><a id="map-link" target="_blank" rel="noopener">OpenStreetMap’te aç</a></div>
   <div id="map" class="map" aria-label="Etkileşimli mera ve deniz tabanı haritası"></div>
   <p id="map-status" class="muted" role="status"></p>
+  <div id="cast-panel" class="cast-panel">
+    <div class="spread"><h2>Atış alanı</h2><button id="cast-start" type="button">25 m atış alanını incele</button></div>
+    <p id="cast-status" class="muted" role="status">Kıyıdaki yerini ve oltanın düştüğü su noktasını seç.</p>
+    <button id="cast-reset" type="button" hidden>Seçimi temizle</button>
+  </div>
   <div id="bottom-panel"><h2>Deniz tabanı</h2><p id="bottom-status" role="status"></p><button id="bottom-refresh" type="button">Dip verisini yenile</button><div id="bottom-map-legend" class="row"></div></div>
   <div class="map-options"><button id="heat-button" type="button">Koşul puanlarını göster</button><div id="heat-result" aria-live="polite"></div></div>
 </article>
