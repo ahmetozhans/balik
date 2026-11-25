@@ -36,6 +36,18 @@ function localTime() {
   const parts = Object.fromEntries(clockFormat.formatToParts(new Date()).map(part => [part.type, part.value]));
   return parts.year + '-' + parts.month + '-' + parts.day + 'T' + parts.hour + ':' + parts.minute;
 }
+function forecastTime(hour) {
+  return Date.parse(hour.time + '+03:00');
+}
+
+function futureForecast(hours, now = Date.now()) {
+  return hours.filter(hour => forecastTime(hour) >= now);
+}
+
+function forecastClockKey(now = Date.now()) {
+  return Math.ceil(now / 3600000) + ':' + Math.floor((now + 3 * 3600000) / 86400000);
+}
+
 function read(key, fallback) {
   try { return JSON.parse(localStorage.getItem(key)) ?? fallback; }
   catch { return fallback; }
@@ -745,7 +757,7 @@ async function loadHeatMap() {
   heatRequest = controller;
   const button = $('heat-button');
   const result = $('heat-result');
-  const now = Date.parse(localTime().slice(0, 13) + ':00+03:00');
+  const now = Date.now();
   const nearby = modeSpots().sort((a, b) =>
     Math.hypot(a.lat - activeSpot.lat, a.lon - activeSpot.lon) -
     Math.hypot(b.lat - activeSpot.lat, b.lon - activeSpot.lon)).slice(0, 8);
@@ -760,7 +772,7 @@ async function loadHeatMap() {
       ]);
       if (controller.signal.aborted) throw new Error('Zaman aşımı');
       const forecast = combine(weather, marine).filter(hour => {
-        const time = Date.parse(hour.time + '+03:00');
+        const time = forecastTime(hour);
         return time >= now && time < now + 86400000;
       });
       return { spot, forecast };
@@ -945,9 +957,8 @@ async function compareSpots() {
     }));
     if (comparisonRequest !== controller) return;
     if (controller.signal.aborted) throw new Error('Tahmin zaman aşımına uğradı');
-    const start = localTime().slice(0, 13);
     const secondByTime = new Map(forecasts[1].map(hour => [hour.time, hour]));
-    const shared = forecasts[0].filter(hour => hour.time.slice(0, 13) >= start && secondByTime.has(hour.time));
+    const shared = futureForecast(forecasts[0]).filter(hour => secondByTime.has(hour.time));
     if (!shared.length) {
       output.textContent = 'Karşılaştırılabilecek ortak tahmin saati bulunamadı.';
       return;
@@ -973,14 +984,25 @@ async function compareSpots() {
     if (comparisonRequest === controller) $('compare-button').disabled = false;
   }
 }
+let renderedClockKey;
+
+function refreshForecastClock() {
+  if (renderedClockKey === forecastClockKey()) return;
+  clearComparison();
+  resetHeat();
+  renderForecast();
+}
+
 function renderForecast() {
+  const instant = Date.now();
+  renderedClockKey = forecastClockKey(instant);
   const today = $('today-content');
   const plan = $('plan-content');
   today.replaceChildren();
   plan.replaceChildren();
   $('today').querySelector('h1').textContent = activeSpot.name + ' · Bugün';
   const now = localTime();
-  const upcoming = hours.filter(item => item.time.slice(0, 13) >= now.slice(0, 13));
+  const upcoming = futureForecast(hours, instant);
   const todaysHours = upcoming.filter(item => item.time.slice(0, 10) === now.slice(0, 10));
   const speciesKey = $('species').value;
   const species = fish[speciesKey];
@@ -1009,7 +1031,8 @@ function renderForecast() {
       el('p', conditionSummary(top.item)), el('small', 'Saat önerisi hava ve deniz koşullarına göre sıralanır.'));
   } else {
     hero.append(el('h2', 'Bugün için saat önerisi yok'),
-      el('p', 'Kalan saatler için öneriye yetecek rüzgâr ve dalga verisi bulunamadı.'));
+      el('p', todaysHours.length ? 'Kalan saatler için öneriye yetecek model verisi bulunamadı.'
+        : 'Bugünün son tahmin saati geçti. Sonraki saatleri 7 Gün bölümünde görebilirsin.'));
   }
   if (mode !== 'fresh') {
     const official = el('a', 'MGM deniz tahmini');
@@ -1031,7 +1054,7 @@ function renderForecast() {
       item.append(el('small', label), el('strong', value));
       cards.append(item);
     }
-    today.append(el('h2', 'Saat ' + next.time.slice(11, 16) + ' tahmini', 'section-heading'), cards, metricCard(todaysHours));
+    today.append(el('h2', 'Sonraki tahmin · ' + next.time.slice(11, 16), 'section-heading'), cards, metricCard(todaysHours));
   }
 
   const guide = el('article', '');
@@ -1225,6 +1248,7 @@ for (const tab of tabs) {
       else item.removeAttribute('aria-current');
     }
     renderMap();
+    refreshForecastClock();
   };
 }
 $('mode').onchange = () => {
@@ -1245,4 +1269,7 @@ renderFish();
 renderLog();
 loadBottom();
 loadForecast();
+setInterval(() => { if (!document.hidden) refreshForecastClock(); }, 10000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshForecastClock(); });
+window.addEventListener('pageshow', refreshForecastClock);
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {});
