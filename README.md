@@ -1,6 +1,6 @@
 # Mera
 
-Marmara'da kıyı avı için Türkçe web uygulaması. Hava ve deniz tahmini Open-Meteo'dan, harita OpenStreetMap'ten gelir. Av puanı sezon, gün doğumu ve batımı, rüzgâr, dalga ve su sıcaklığına göre hesaplanan deneysel bir göstergedir.
+Marmara'da kıyı avı için Türkçe web uygulaması. Hava ve deniz tahmini Open-Meteo'dan, harita OpenStreetMap'ten gelir. Saat önerisi modeldeki rüzgâr, hamle, yağış ihtimali ve dalga değerlerini karşılaştırır. Yakalama olasılığı ve güvenlik kararı üretmez. Av defteri aynı mera ve tür için kişisel sonuçları gösterir.
 
 ## Çalıştırma
 

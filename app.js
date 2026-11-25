@@ -1,5 +1,5 @@
 const $ = id => document.getElementById(id);
-const forecastHours = 'wind_speed_10m,pressure_msl,temperature_2m,precipitation_probability,cloud_cover,wind_direction_10m';
+const forecastHours = 'wind_speed_10m,wind_gusts_10m,pressure_msl,temperature_2m,precipitation_probability,cloud_cover,wind_direction_10m';
 const marineHours = 'wave_height,sea_surface_temperature,ocean_current_velocity,wave_period,ocean_current_direction';
 const starterSpots = [
   { id: 'mudanya', name: 'Mudanya', lat: 40.379, lon: 28.884 },
@@ -257,6 +257,7 @@ $('mode').value = mode;
 $('wave-limit').value = read('mera:wave-limit', '') ?? '';
 let heatRequest;
 let hours = [];
+let forecastState = 'loading';
 function matchesMode(item) { return (item.water === 'fresh') === (mode === 'fresh'); }
 function modeSpots() { return spots.filter(matchesMode); }
 function refreshSpecies() {
@@ -312,7 +313,7 @@ function combine(weather, marine) {
     const marineIndex = indexes.get(time);
     const day = days.get(time.slice(0, 10));
     return {
-      time, wind: weather.hourly.wind_speed_10m[index], pressure: weather.hourly.pressure_msl[index],
+      time, gust: weather.hourly.wind_gusts_10m?.[index], wind: weather.hourly.wind_speed_10m[index], pressure: weather.hourly.pressure_msl[index],
       air: weather.hourly.temperature_2m?.[index], rain: weather.hourly.precipitation_probability?.[index],
       clouds: weather.hourly.cloud_cover?.[index], windDirection: weather.hourly.wind_direction_10m?.[index],
       wavePeriod: marine?.hourly?.wave_period?.[marineIndex], currentDirection: marine?.hourly?.ocean_current_direction?.[marineIndex],
@@ -330,6 +331,7 @@ async function loadForecast() {
   const key = 'mera:forecast:' + spot.id;
   const cached = read(key, null);
   hours = cached?.hours || [];
+  forecastState = 'loading';
   $('status').textContent = spot.name + ' için tahmin yükleniyor…';
   renderForecast();
   const timer = setTimeout(() => controller.abort(), 12000);
@@ -340,44 +342,49 @@ async function loadForecast() {
     const marine = await marinePromise;
     if (request !== controller) return;
     hours = combine(weather, marine);
-    write(key, { hours, at: Date.now() });
-    $('status').textContent = spot.water === 'fresh' ? 'Kaynak: Open-Meteo hava tahmini. Göl su verisi mevcut değil.' : hours.some(item => Number.isFinite(item.wave) || Number.isFinite(item.water))
-      ? 'Kaynak: Open-Meteo hava ve deniz tahmini.'
-      : 'Deniz verisi bulunamadı. Puan yalnızca mevcut verilerle hesaplandı.';
+    const fetchedAt = Date.now();
+    write(key, { hours, at: fetchedAt });
+    forecastState = 'fresh';
+    $('status').textContent = spot.water === 'fresh' ? 'Open-Meteo hava modeli · Göl su verisi yok' : hours.some(item => Number.isFinite(item.wave) || Number.isFinite(item.water))
+      ? 'Open-Meteo hava ve deniz modeli'
+      : 'Open-Meteo hava modeli · Deniz verisi eksik';
+    $('status').textContent += ' · Alındı: ' + dateFormat.format(fetchedAt);
   } catch {
     if (request !== controller) return;
+    forecastState = 'cached';
     $('status').textContent = cached
-      ? 'Bağlantı yok. Son kayıt: ' + dateFormat.format(cached.at)
+      ? 'Güncellenemedi · Son alınan tahmin: ' + dateFormat.format(cached.at)
       : 'Tahmin alınamadı. Bağlantını kontrol edip tekrar dene.';
   } finally {
     clearTimeout(timer);
     if (request === controller) renderForecast();
   }
 }
-function score(hour, species) {
-  const month = Number(hour.time.slice(5, 7));
-  const time = Date.parse(hour.time + '+03:00');
-  const closeToTwilight = [hour.sunrise, hour.sunset].some(edge =>
-    Math.abs(time - Date.parse(edge + '+03:00')) <= 90 * 60 * 1000
-  );
+function score(hour) {
   const factors = [
-    [species.months.includes(month) ? 82 : 36, 3, 'sezon'],
-    [closeToTwilight ? 88 : 46, 3, 'gün doğumu ve batımı'],
-    [Number.isFinite(hour.wind) ? Math.max(0, 95 - hour.wind * 2.4) : null, 2, 'rüzgâr'],
-    [Number.isFinite(hour.wave) ? Math.max(0, 87 - hour.wave * 33) : null, 2, 'dalga'],
-    [Number.isFinite(hour.water) ? Math.max(0, 95 - Math.abs(hour.water - species.temp) * 9) : null, 3, 'su sıcaklığı']
-  ].filter(([value]) => value !== null);
-  return {
-    value: Math.round(factors.reduce((total, [value, weight]) => total + value * weight, 0)
-      / factors.reduce((total, [, weight]) => total + weight, 0)),
-    factors
-  };
+    [hour.wind, 40, 'rüzgâr'],
+    [hour.gust, 55, 'rüzgâr hamlesi'],
+    [hour.rain, 100, 'yağış ihtimali'],
+    [hour.wave, 1.5, 'dalga']
+  ].filter(([value]) => Number.isFinite(value));
+  return { value: factors.length ? 100 - 100 * factors.reduce((sum, [value, range]) =>
+    sum + Math.min(1, Math.max(0, value / range)), 0) / factors.length : 0 };
 }
-function best(items, species) {
-  return items.reduce((winner, item) => {
-    const result = score(item, species);
+function best(items) {
+  // Compare hours using fields available for every candidate.
+  const usable = items.filter(hour => Number.isFinite(hour.wind) && (mode === 'fresh' || Number.isFinite(hour.wave)));
+  const fields = ['gust', 'rain', 'wave'].filter(key => usable.every(hour => Number.isFinite(hour[key])));
+  return usable.reduce((winner, item) => {
+    const comparable = { wind: item.wind };
+    for (const key of fields) comparable[key] = item[key];
+    const result = score(comparable);
     return !winner || result.value > winner.result.value ? { item, result } : winner;
   }, null);
+}
+function conditionSummary(hour) {
+  return 'Rüzgâr ' + format(hour.wind, 'km/sa') +
+    (mode !== 'fresh' ? ' · Dalga ' + format(hour.wave, 'm') : '') +
+    ' · Yağış ' + format(hour.rain, '%');
 }
 function format(value, unit) {
   return Number.isFinite(value) ? new Intl.NumberFormat('tr-TR', { maximumFractionDigits: 1 }).format(value) + ' ' + unit : '—';
@@ -446,7 +453,6 @@ async function loadHeatMap() {
   heatRequest = controller;
   const button = $('heat-button');
   const result = $('heat-result');
-  const species = fish[$('species').value];
   const now = Date.parse(localTime().slice(0, 13) + ':00+03:00');
   const nearby = modeSpots().sort((a, b) =>
     Math.hypot(a.lat - activeSpot.lat, a.lon - activeSpot.lon) -
@@ -486,8 +492,15 @@ async function loadHeatMap() {
         wave: set.every(item => Number.isFinite(item.wave)) ? hour.wave : undefined
       }));
     });
-    const points = ready.map(({ spot }, index) => ({ spot, value: best(common.map(set => set[index]), species).result.value }));
-    result.replaceChildren(el('p', species.name + ' · ' + ready.length + '/' + nearby.length + ' mera'));
+    const points = ready.flatMap(({ spot }, index) => {
+      const peak = best(common.map(set => set[index]));
+      return peak ? [{ spot, value: Math.round(peak.result.value) }] : [];
+    });
+    if (!points.length) {
+      result.textContent = 'Harita için yeterli rüzgâr ve dalga verisi yok.';
+      return;
+    }
+    result.replaceChildren(el('p', 'Koşul endeksi · ' + points.length + '/' + nearby.length + ' mera'));
     const plot = el('div', '', 'heat-map');
     plot.setAttribute('aria-label', 'Meraların yaklaşık konumları. Üst taraf kuzey.');
     const list = el('div', '', 'heat-list');
@@ -576,7 +589,6 @@ async function compareSpots() {
   const other = spots.find(spot => spot.id === $('compare-spot').value);
   if (!other) return;
   const selected = activeSpot;
-  const species = fish[$('species').value];
   const output = $('compare-result');
   const controller = new AbortController();
   comparisonRequest = controller;
@@ -602,7 +614,7 @@ async function compareSpots() {
       return;
     }
     const pairs = shared.map(hour => [hour, secondByTime.get(hour.time)]);
-    const fields = ['wave', 'water'];
+    const fields = ['wave', 'gust', 'rain'];
     const comparable = pairs.map(pair => pair.map(hour => {
       const copy = { ...hour };
       for (const key of fields) {
@@ -610,10 +622,10 @@ async function compareSpots() {
       }
       return copy;
     }));
-    output.replaceChildren(el('p', species.name + ' · Ortak saatler ve mevcut veriler'));
+    output.replaceChildren(el('p', 'Ortak saatlerde hava ve deniz karşılaştırması'));
     for (const [index, spot] of [selected, other].entries()) {
-      const peak = best(comparable.map(pair => pair[index]), species);
-      output.append(el('p', spot.name + ' · ' + peak.result.value + ' / 100 · ' + dateFormat.format(new Date(peak.item.time + '+03:00'))));
+      const peak = best(comparable.map(pair => pair[index]));
+      output.append(el('p', spot.name + ' · ' + (peak ? dateFormat.format(new Date(peak.item.time + '+03:00')) + ' · ' + conditionSummary(peak.item) : 'Eksik model verisi')));
     }
   } catch {
     if (comparisonRequest === controller) output.textContent = 'Karşılaştırma yüklenemedi. Tekrar deneyebilirsin.';
@@ -627,61 +639,72 @@ function renderForecast() {
   const plan = $('plan-content');
   today.replaceChildren();
   plan.replaceChildren();
+  $('today').querySelector('h1').textContent = activeSpot.name + ' · Bugün';
   const now = localTime();
   const upcoming = hours.filter(item => item.time.slice(0, 13) >= now.slice(0, 13));
   const todaysHours = upcoming.filter(item => item.time.slice(0, 10) === now.slice(0, 10));
-  const species = fish[$('species').value];
+  const speciesKey = $('species').value;
+  const species = fish[speciesKey];
   renderMoon(now.slice(0, 10));
-  renderWaveLimit(todaysHours);
-  if (!upcoming.length) {
+  renderWaveLimit(forecastState === 'fresh' ? todaysHours : []);
+  if (!upcoming.length || forecastState !== 'fresh') {
+    const card = el('article', '', 'hero');
+    card.append(el('h2', forecastState === 'loading' ? 'Tahmin yükleniyor…' : 'Güncel tahmin alınamadı'));
+    if (upcoming.length) {
+      card.append(el('p', 'Son alınan tahmin · ' + upcoming[0].time.slice(11, 16)),
+        el('p', conditionSummary(upcoming[0]), 'muted'));
+    }
     const refresh = el('button', 'Tahmini yenile');
+    refresh.disabled = forecastState === 'loading';
     refresh.onclick = loadForecast;
-    today.append(el('p', 'Görüntülenecek güncel saatlik tahmin yok.'), refresh);
-    plan.append(el('p', 'Görüntülenecek tahmin yok.'));
+    card.append(refresh);
+    today.append(card);
+    plan.append(el('p', 'Plan için güncel tahmin bekleniyor.'));
     return;
   }
-  if (!todaysHours.length) today.append(el('p', 'Bugün için kalan saat bulunmuyor. 7 Gün ekranını aç.'));
-  const top = best(todaysHours, species);
+
+  const hero = el('article', '', 'hero');
+  const top = best(todaysHours);
   if (top) {
-    const card = el('article', '', 'hero');
-    const summary = el('div', '', 'spread');
-    const description = el('div', '');
-    description.append(el('h2', activeSpot.name + ' · ' + species.name),
-      el('p', 'En iyi saat ' + top.item.time.slice(11, 16), 'time'),
-      el('p', species.bait + ' · ' + species.rig));
-    if (bottom.label) description.append(el('small', 'Dip · ' + bottom.label + ' · EMODnet'));
-    summary.append(description, el('div', top.result.value + ' / 100', 'score'));
-    const factors = el('details', '');
-    factors.append(el('summary', 'Av puanı nasıl oluştu?'),
-      el('p', 'Deneysel puan · ' + top.result.factors.map(([value, , name]) => name + ' ' + Math.round(value)).join(' · ')));
-    card.append(summary, factors);
-    today.append(card);
-    const ranking = el('article', '');
-    ranking.append(el('h2', 'Bugün hangi balık?'));
-    const ranked = Object.entries(fish).filter(([, item]) => matchesMode(item)).map(([id, item]) => [id, item, best(todaysHours, item)])
-      .sort((a, b) => b[2].result.value - a[2].result.value);
-    for (const [id, item, peak] of ranked) {
-      const button = el('button', '', 'rank-row');
-      button.append(el('span', item.name), el('strong', peak.result.value + ' puan'), el('small', peak.item.time.slice(11, 16)));
-      button.onclick = () => {
-        $('species').value = id;
-        $('species').onchange();
-      };
-      ranking.append(button);
-    }
-    today.append(metricCard(todaysHours), ranking);
-    const table = el('table', '');
-    table.createTHead().insertRow().append(...['Saat', 'Puan', 'Rüzgâr', 'Dalga', 'Basınç', 'Su', 'Akıntı'].map(title => el('th', title)));
-    const body = table.createTBody();
-    for (const hour of todaysHours) {
-      const columns = [hour.time.slice(11, 16), score(hour, species).value, format(hour.wind, 'km/sa'),
-        format(hour.wave, 'm'), format(hour.pressure, 'hPa'), format(hour.water, '°C'), format(hour.current, 'm/sn')];
-      body.insertRow().append(...columns.map(value => el('td', value)));
-    }
-    const wrapper = el('div', '', 'card scroll');
-    wrapper.append(el('h2', 'Saatlik koşullar'), table);
-    today.append(wrapper);
+    hero.append(el('h2', 'Bugün daha sakin görünen saat'), el('div', top.item.time.slice(11, 16), 'trip-time'),
+      el('p', conditionSummary(top.item)), el('small', 'Saat önerisi hava ve deniz koşullarına göre sıralanır.'));
+  } else {
+    hero.append(el('h2', 'Bugün için saat önerisi yok'),
+      el('p', 'Kalan saatler için öneriye yetecek rüzgâr ve dalga verisi bulunamadı.'));
   }
+  if (mode !== 'fresh') {
+    const official = el('a', 'MGM deniz tahmini');
+    official.href = 'https://www.mgm.gov.tr/deniz/';
+    official.target = '_blank';
+    official.rel = 'noopener';
+    hero.append(el('div', '', 'official-link'));
+    hero.lastElementChild.append(official);
+  }
+  today.append(hero);
+
+  if (todaysHours.length) {
+    const cards = el('div', '', 'quick-conditions');
+    const next = todaysHours[0];
+    const fields = [['Rüzgâr', format(next.wind, 'km/sa')], [mode === 'fresh' ? 'Hamle' : 'Dalga',
+      mode === 'fresh' ? format(next.gust, 'km/sa') : format(next.wave, 'm')], ['Yağış', format(next.rain, '%')]];
+    for (const [label, value] of fields) {
+      const item = el('div', '', 'quick-condition');
+      item.append(el('small', label), el('strong', value));
+      cards.append(item);
+    }
+    const details = el('details', '');
+    details.append(el('summary', 'Saatlik hava ve deniz grafikleri'), metricCard(todaysHours));
+    today.append(el('h2', 'Saat ' + next.time.slice(11, 16) + ' tahmini', 'section-heading'), cards, details);
+  }
+
+  const guide = el('article', '');
+  guide.append(el('h2', species.name), el('p', species.bait + ' · ' + species.rig));
+  if (bottom.label) guide.append(el('p', 'Dip · ' + bottom.label + ' · EMODnet', 'muted'));
+  const trips = records.filter(entry => entry.spot === activeSpot.name && entry.fish === speciesKey);
+  if (trips.length) guide.append(el('small', 'Av defterin · ' + trips.filter(entry => Number(entry.count) > 0).length +
+    ' sonuç veren av / ' + trips.length + ' kayıt'));
+  today.append(guide);
+
   const dates = new Map();
   for (const item of upcoming) {
     const date = item.time.slice(0, 10);
@@ -689,13 +712,15 @@ function renderForecast() {
     dates.get(date).push(item);
   }
   for (const [date, items] of dates) {
-    const top = best(items, species);
-    const card = el('article', '');
-    card.append(el('h2', dayFormat.format(new Date(date + 'T12:00:00+03:00'))),
-      el('p', species.name + ' · ' + top.item.time.slice(11, 16) + ' · ' + top.result.value + ' / 100'));
-    const reminder = el('button', 'Takvime ekle', 'calendar-button');
-    reminder.onclick = () => saveReminder(top.item.time, activeSpot.name, species.name);
-    card.append(reminder);
+    const pick = best(items);
+    const card = el('article', '', 'plan-day');
+    card.append(el('h2', dayFormat.format(new Date(date + 'T12:00:00+03:00'))));
+    if (pick) {
+      card.append(el('p', pick.item.time.slice(11, 16) + ' · ' + conditionSummary(pick.item)));
+      const reminder = el('button', 'Takvime ekle', 'calendar-button');
+      reminder.onclick = () => saveReminder(pick.item.time, activeSpot.name, species.name);
+      card.append(reminder);
+    } else card.append(el('p', 'Saat önerisi için eksik model verisi.', 'muted'));
     plan.append(card);
   }
 }

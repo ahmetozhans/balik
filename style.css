@@ -56,3 +56,22 @@ summary{cursor:pointer}
 .bottom-map-image button{border:0;background:transparent;border-radius:0;cursor:crosshair}
 .bottom-map-image button::after{content:"";position:absolute;left:var(--pin-x,50%);top:var(--pin-y,50%);width:12px;height:12px;transform:translate(-50%,-50%);border:2px solid #fff;border-radius:50%;background:#172435;box-shadow:0 0 0 2px #172435;pointer-events:none}
 #bottom-map-legend a{font-size:13px}
+
+:root{--bg:#0b171c;--panel:#14252b;--line:#2a3e45;--ink:#f4f8f4;--muted:#afc3c4;--accent:#ffcf8f;--sea:#a8e5c7}
+body{background:radial-gradient(ellipse at 88% 0,#24413b 0,transparent 35rem),var(--bg)}
+header{margin-bottom:18px}
+nav{background:#122329}
+nav button[aria-current]{background:#23403b}
+.trip-controls{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.trip-controls label{min-width:0}
+.trip-controls select{width:100%;padding:9px 6px;background:#13262c}
+.hero{padding:22px;background:linear-gradient(132deg,#1c3c38,#172c33 82%)}
+.trip-time{font:700 clamp(50px,13vw,81px)/1 Georgia,serif;color:var(--sea);margin:8px 0 14px;font-variant-numeric:tabular-nums}
+.official-link{margin-top:12px;font-size:14px}
+.quick-conditions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-bottom:15px}
+.quick-condition{display:grid;gap:6px;align-content:start;background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:12px 9px}
+.quick-condition strong{font-size:clamp(15px,4.4vw,21px);font-variant-numeric:tabular-nums}
+.section-heading{margin:22px 0 9px;font-size:16px}
+.plan-day p{margin-bottom:4px}
+#today details article{padding:0;border:0;background:transparent}
+@media(max-width:375px){.trip-controls select{font-size:14px}}
